@@ -1,20 +1,27 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { JOB_TIMEOUT_MS } from "@/components/dashboard/module2/use-radar-run";
+import { runInProcessRadarPipeline } from "@/lib/services/module2-inprocess-worker";
 import {
   ACTIVE_JOB_CONFLICT_MESSAGE,
   JOB_CREATE_FAILED_MESSAGE,
   dispatchToScraperWorker,
+  isExternalWorkerConfigured,
   mapDbRowToRadarJob,
   type RadarJobDbRow,
 } from "@/lib/services/module2-service";
 import { requireAuthenticatedUser } from "@/lib/supabase/server";
 import { validateCompetitorForm } from "@/lib/validation/competitor-form";
 
+// Allow up to 60 seconds on Vercel Hobby for background `after()` execution.
+export const maxDuration = 60;
+
 /**
  * POST /api/module2/dispatch
  * Validates URLs server-side, checks for any active Radar_Job belonging to the user,
- * inserts a PENDING Radar_Job, dispatches `{ radar_id }` to Scraper_Worker with a 5s timeout,
- * updates status to SCRAPING or FAILED, and returns within 8 seconds (Req 1.3, 13.4–13.7, 14.1–14.8).
+ * inserts a PENDING Radar_Job, and either:
+ * - Dispatches `{ radar_id }` to external Scraper_Worker when `SCRAPER_WORKER_URL` is configured, OR
+ * - Runs the built-in Vercel/Next.js in-process pipeline via `after()` when `SCRAPER_WORKER_URL`
+ *   is unset / `"vercel"` / `"internal"`.
  */
 export async function POST(request: Request) {
   const auth = await requireAuthenticatedUser();
@@ -91,9 +98,11 @@ export async function POST(request: Request) {
   }
 
   const createdRow = inserted as RadarJobDbRow;
+  const useExternalWorker = isExternalWorkerConfigured();
 
-  // Requirement 14.2–14.4: dispatch radar_id to Scraper_Worker with Worker_Secret and 5s timeout.
-  const dispatchOutcome = await dispatchToScraperWorker(createdRow.id);
+  const dispatchOutcome = useExternalWorker
+    ? await dispatchToScraperWorker(createdRow.id)
+    : ({ ok: true, nextStatus: "SCRAPING", mode: "inprocess" } as const);
 
   const updatePayload = dispatchOutcome.ok
     ? { status: "SCRAPING" as const, error_message: null }
@@ -111,6 +120,12 @@ export async function POST(request: Request) {
     ...createdRow,
     ...updatePayload,
   };
+
+  if (!useExternalWorker && dispatchOutcome.ok) {
+    after(async () => {
+      await runInProcessRadarPipeline(supabase, createdRow.id, user.id, validation.urls);
+    });
+  }
 
   return NextResponse.json({
     job: mapDbRowToRadarJob(finalRow),

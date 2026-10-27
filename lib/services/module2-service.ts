@@ -117,8 +117,21 @@ export interface DispatchWorkerOptions {
 }
 
 export type DispatchOutcome =
-  | { ok: true; nextStatus: "SCRAPING" }
+  | { ok: true; nextStatus: "SCRAPING"; mode?: "external" | "inprocess" }
   | { ok: false; nextStatus: "FAILED"; errorMessage: string };
+
+/**
+ * Returns true only when an external Scraper_Worker URL is explicitly configured
+ * (and is not the template placeholder or `"internal"` / `"vercel"`).
+ */
+export function isExternalWorkerConfigured(rawUrl?: string): boolean {
+  const url = (rawUrl ?? process.env.SCRAPER_WORKER_URL ?? "").trim();
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  if (lower === "internal" || lower === "vercel") return false;
+  if (lower.includes("<space-name>")) return false;
+  return true;
+}
 
 /**
  * Dispatches `{ radar_id }` to Scraper_Worker with Worker_Secret header and a 5-second timeout.
