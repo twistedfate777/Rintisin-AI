@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 AGENTS.md
+.agents
+.agents/*
+# design-taste-frontend working folder (direction sheet, inspector screenshots)
+/.taste-skill/

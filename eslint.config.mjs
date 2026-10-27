@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored agent skill and its working folder: not app code.
+    ".agents/**",
+    ".taste-skill/**",
   ]),
 ]);
 

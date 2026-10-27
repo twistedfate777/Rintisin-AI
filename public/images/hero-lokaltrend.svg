@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 700" width="600" height="700" role="img" aria-labelledby="title desc">
+  <title id="title">Contoh hasil LokalTrend Radar</title>
+  <desc id="desc">Kartu analisis contoh: sambal bawang rendah kalori, kategori kuliner, kota target Jakarta Selatan, modal awal Rp 15.000.000. Grafik laba kotor kumulatif memotong garis modal awal di 883 unit. Margin kotor 48,6 persen dengan status Layak dengan Catatan.</desc>
+
+  <!--
+    Rintisin AI hero illustration. Every figure comes from the app's own worked example in
+    lib/mock/module1.ts: HPP Rp 18.000, harga jual Rp 35.000, modal awal Rp 15.000.000.
+    Laba kotor per unit = 35.000 - 18.000 = 17.000. Balik modal = 15.000.000 / 17.000 = 882,4,
+    rounded up to 883 unit. Chart: x 0..1.500 unit over 92..528; y Rp 0..25,5 jt over 500..392.
+    Modal line at Rp 15 jt sits at y 436,5; it meets the profit line at x 348,5.
+  -->
+
+  <style>
+    text { font-family: Archivo, "Segoe UI", Inter, Helvetica, Arial, sans-serif; }
+  </style>
+
+  <!-- card -->
+  <rect x="12" y="12" width="576" height="676" rx="24" fill="#ffffff" stroke="#dfead4" stroke-width="1.5"/>
+
+  <!-- header: product mark, name, status -->
+  <g transform="translate(48 52) scale(1.5)">
+    <rect width="24" height="24" rx="6" fill="#3a6b00"/>
+    <path d="M6 18a12 12 0 0 1 12-12" fill="none" stroke="#7fff00" stroke-width="2" stroke-linecap="round"/>
+    <path d="M10 18a8 8 0 0 1 8-8" fill="none" stroke="#7fff00" stroke-opacity="0.6" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="16.5" cy="16.5" r="2" fill="#7fff00"/>
+  </g>
+  <text x="98" y="67" font-size="17" font-weight="600" fill="#121410">LokalTrend Radar</text>
+  <text x="98" y="87" font-size="13" fill="#5b6153">Analisis ide produk</text>
+
+  <rect x="384" y="55" width="168" height="30" rx="15" fill="#fffbeb" stroke="#fde68a"/>
+  <text x="468" y="75" font-size="13" font-weight="600" fill="#92400e" text-anchor="middle">Layak dengan Catatan</text>
+
+  <line x1="48" y1="112" x2="552" y2="112" stroke="#eff7e8" stroke-width="1.5"/>
+
+  <!-- modal awal -->
+  <text x="48" y="146" font-size="14" fill="#5b6153">Estimasi modal awal</text>
+  <rect x="48" y="158" width="504" height="52" rx="12" fill="#f5ffeb" stroke="#dfead4"/>
+  <text x="66" y="191" font-size="19" font-weight="600" fill="#121410">Rp 15.000.000</text>
+  <text x="534" y="190" font-size="13" font-weight="600" fill="#5b6153" text-anchor="end">IDR</text>
+
+  <!-- kategori and kota -->
+  <text x="48" y="242" font-size="14" fill="#5b6153">Kategori ekraf</text>
+  <text x="308" y="242" font-size="14" fill="#5b6153">Kota target</text>
+  <rect x="48" y="254" width="244" height="48" rx="12" fill="#f5ffeb" stroke="#dfead4"/>
+  <rect x="308" y="254" width="244" height="48" rx="12" fill="#f5ffeb" stroke="#dfead4"/>
+  <text x="66" y="284" font-size="16" font-weight="600" fill="#121410">Kuliner</text>
+  <text x="326" y="284" font-size="16" font-weight="600" fill="#121410">Jakarta Selatan</text>
+
+  <!-- chart panel: break-even -->
+  <rect x="48" y="326" width="504" height="228" rx="16" fill="#f7fff0" stroke="#dfead4"/>
+  <text x="68" y="360" font-size="16" font-weight="600" fill="#121410">Titik balik modal</text>
+  <rect x="452" y="342" width="84" height="26" rx="8" fill="#e5ffc9"/>
+  <text x="494" y="360" font-size="13" font-weight="600" fill="#1f3d05" text-anchor="middle">883 unit</text>
+
+  <!-- area under the cumulative profit line, flat fill -->
+  <polygon points="92,500 528,392 528,500" fill="#e8ffd1"/>
+  <!-- modal awal threshold -->
+  <line x1="92" y1="436.5" x2="528" y2="436.5" stroke="#c4242a" stroke-width="2" stroke-dasharray="6 6"/>
+  <!-- cumulative gross profit -->
+  <line x1="92" y1="500" x2="528" y2="392" stroke="#3a6b00" stroke-width="4" stroke-linecap="round"/>
+  <!-- break-even marker -->
+  <line x1="348.5" y1="444" x2="348.5" y2="500" stroke="#5b6153" stroke-width="1.5" stroke-dasharray="2 4"/>
+  <circle cx="348.5" cy="436.5" r="8" fill="#7fff00" stroke="#121410" stroke-width="2.5"/>
+  <text x="340" y="420" font-size="12" font-weight="600" fill="#121410" text-anchor="end">Balik modal</text>
+
+  <!-- axis -->
+  <text x="92" y="519" font-size="12" fill="#5b6153">0</text>
+  <text x="528" y="519" font-size="12" fill="#5b6153" text-anchor="end">1.500 unit</text>
+
+  <!-- legend -->
+  <line x1="68" y1="537" x2="86" y2="537" stroke="#3a6b00" stroke-width="3" stroke-linecap="round"/>
+  <text x="94" y="541" font-size="13" fill="#5b6153">Laba kotor kumulatif</text>
+  <text x="532" y="541" font-size="13" font-weight="600" fill="#c4242a" text-anchor="end">Modal awal Rp 15 jt</text>
+
+  <!-- verdict callout -->
+  <rect x="48" y="578" width="504" height="84" rx="16" fill="#e8ffd1" stroke="#c7e6a6"/>
+  <circle cx="92" cy="620" r="24" fill="#7fff00"/>
+  <path d="M81 620l7 7 14-15" fill="none" stroke="#121410" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="132" y="613" font-size="18" font-weight="700" fill="#1f3d05">Margin kotor 48,6%</text>
+  <text x="132" y="638" font-size="14" fill="#3a6b00">Laba Rp 17.000 per unit, balik modal di 883 unit</text>
+</svg>

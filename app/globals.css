@@ -1,26 +1,297 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * App style: "Framed sheet" (design-taste-frontend, seed 1113302439, sheet in .taste-skill/app/).
+ * Palette redraw: the dealt proportions are kept (tinted frame, white sheet, colour budget under 3%),
+ * but the hues come from the brand's own reference: a vivid lime on near-black ink and white.
+ * Face: the frame is tinted one low-chroma step of that lime (#f7fff0 in place of #f9fbfc);
+ * the sheet stays white.
+ *
+ * The lime splits into two roles, because #7fff00 on white is 1.3:1 and cannot carry text or lines:
+ *   --brand-fill  #7fff00  fills only (primary button, logo arcs), always with --on-brand over it;
+ *   --brand       #3a6b00  everything thin or read: links, focus ring, tab underline, chart strokes.
+ *
+ * Dealt names that collide with shadcn roles are renamed: --accent -> --brand, --muted -> --text-muted.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* dealt tokens */
+  --ground: #f7fff0;
+  --surface: #ffffff;
+  --raised: #f5ffeb;
+  --active: #e8ffd1;
+  --active-hover: #ddffbd;
+  --active-press: #d3ffa8;
+  --rule: #eff7e8;
+  --rule-strong: #dfead4;
+  --control: #c7d6b9;
+  --control-hover: #b6c8a5;
+  --hover: #efffe0;
+  --text: #121410;
+  --text-muted: #5b6153;
+  --text-placeholder: #6b7063;
+  --ink-soft: #5b6153;
+  --brand: #3a6b00;
+  --brand-fill: #7fff00;
+  --brand-fill-hover: #72e600;
+  --brand-fill-press: #66cc00;
+  --on-brand: #121410;
+  --selection: #dcffb8;
+  --positive: #15803d;
+  --negative: #c4242a;
+  --negative-edge: #e7b4b2;
+  --negative-press: #ffdcd6;
+  --warning: #92400e;
+  --chart-1: #3a6b00;
+  --chart-2: #0f766e;
+  --chart-3: #a16207;
+  --grid: #e2ecd8;
+  --pill-positive-bg: #e5ffc9;
+  --pill-positive-ink: #1f3d05;
+  --pill-negative-bg: #ffedea;
+  --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fffbeb;
+  --pill-warning-ink: #92400e;
+  --pill-warning-border: #fde68a;
+  --pill-neutral-bg: #eceee7;
+  --pill-neutral-ink: #353736;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-sheet: 16px;
+  --sheet-inset: 8px;
+  --sidebar-width: 228px;
+  --topbar-height: 48px;
+  --gap: 24px;
+  --pad: 24px;
+  --control-height: 32px;
+  --field-height: 40px;
+
+  /* shadcn roles mapped onto the dealt tokens */
+  --background: var(--surface);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--brand-fill);
+  --primary-foreground: var(--on-brand);
+  --secondary: var(--active);
+  --secondary-foreground: var(--text);
+  --muted: var(--raised);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--raised);
+  --accent-foreground: var(--text);
+  --destructive: var(--negative);
+  --border: #e2ecd8;
+  --input: var(--control);
+  --ring: var(--brand);
+  --radius: 6px;
+}
+
+/*
+ * SCOPED LANDING THEME — the public page at "/" only.
+ *
+ * The landing page carries data-theme="lime" on its own route-group wrapper
+ * (app/(marketing)/layout.tsx). Nothing above or outside that wrapper is affected, so the
+ * dashboard and auth screens keep whatever :root says. The token NAMES are the same ones the app
+ * components already read, which is the point: the real Gauge, AspectRadar, Badge, Table and
+ * Button reused as interface fragments on the page take these values automatically, with no
+ * landing-only variants.
+ *
+ * Values come from the brand's own reference screenshots (bright lime accent, near-black ink,
+ * white surfaces, a very light green-tinted ground). They currently match :root; the block is
+ * written out in full and not inherited on purpose, so the page's palette is pinned even if the
+ * app style is re-dealt later.
+ *
+ * Contrast, non-negotiable: #7fff00 on white is 1.3:1, so --brand-fill is for FILLED blocks only
+ * and always carries --on-brand (#121410, 14.3:1 on the lime). Thin and read things use --brand
+ * (#3a6b00, 6.4:1 on white and 6.25:1 on the --ground tint).
+ */
+[data-theme="lime"] {
+  /* White ground, as the brand reference sets it. Surfaces that sat on the old tint now separate
+     from it with --raised and --active instead (see landing.css). */
+  --ground: #ffffff;
+  --surface: #ffffff;
+  --raised: #f5ffeb;
+  --active: #e8ffd1;
+  --active-hover: #ddffbd;
+  --active-press: #d3ffa8;
+  --rule: #eff7e8;
+  --rule-strong: #dfead4;
+  --control: #c7d6b9;
+  --control-hover: #b6c8a5;
+  --hover: #efffe0;
+  --text: #121410;
+  --text-muted: #5b6153;
+  --text-placeholder: #6b7063;
+  --ink-soft: #5b6153;
+  --brand: #3a6b00;
+  --brand-fill: #7fff00;
+  --brand-fill-hover: #72e600;
+  --brand-fill-press: #66cc00;
+  --on-brand: #121410;
+  --selection: #dcffb8;
+  --positive: #15803d;
+  --negative: #c4242a;
+  --negative-edge: #e7b4b2;
+  --negative-press: #ffdcd6;
+  --warning: #92400e;
+  --chart-1: #3a6b00;
+  --chart-2: #0f766e;
+  --chart-3: #a16207;
+  --grid: #e2ecd8;
+  --pill-positive-bg: #e5ffc9;
+  --pill-positive-ink: #1f3d05;
+  --pill-negative-bg: #ffedea;
+  --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fffbeb;
+  --pill-warning-ink: #92400e;
+  --pill-warning-border: #fde68a;
+  --pill-neutral-bg: #eceee7;
+  --pill-neutral-ink: #353736;
+
+  /* shadcn roles, mapped the same way the app maps them */
+  --background: var(--surface);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--brand-fill);
+  --primary-foreground: var(--on-brand);
+  --secondary: var(--active);
+  --secondary-foreground: var(--text);
+  --muted: var(--raised);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--raised);
+  --accent-foreground: var(--text);
+  --destructive: var(--negative);
+  --border: #e2ecd8;
+  --input: var(--control);
+  --ring: var(--brand);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'Inter Variable', Inter, system-ui, sans-serif;
+  --font-heading: 'Inter Variable', Inter, system-ui, sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-active: var(--active);
+  --color-active-hover: var(--active-hover);
+  --color-active-press: var(--active-press);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-control: var(--control);
+  --color-control-hover: var(--control-hover);
+  --color-hover: var(--hover);
+  --color-ink: var(--text);
+  --color-ink-muted: var(--text-muted);
+  --color-ink-placeholder: var(--text-placeholder);
+  --color-ink-soft: var(--ink-soft);
+  --color-brand: var(--brand);
+  --color-brand-fill: var(--brand-fill);
+  --color-brand-fill-hover: var(--brand-fill-hover);
+  --color-brand-fill-press: var(--brand-fill-press);
+  --color-on-brand: var(--on-brand);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-negative-edge: var(--negative-edge);
+  --color-negative-press: var(--negative-press);
+  --color-warning: var(--warning);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-pill-positive-bg: var(--pill-positive-bg);
+  --color-pill-positive-ink: var(--pill-positive-ink);
+  --color-pill-negative-bg: var(--pill-negative-bg);
+  --color-pill-negative-ink: var(--pill-negative-ink);
+  --color-pill-warning-bg: var(--pill-warning-bg);
+  --color-pill-warning-ink: var(--pill-warning-ink);
+  --color-pill-warning-border: var(--pill-warning-border);
+  --color-pill-neutral-bg: var(--pill-neutral-bg);
+  --color-pill-neutral-ink: var(--pill-neutral-ink);
+
+  --radius-sm: 4px;
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: var(--radius-sheet);
+
+  /* type: title 22 · section 16 · kpi 28 · body 14 · small 12 */
+  --text-title: 22px;
+  --text-title--line-height: 28px;
+  --text-section: 16px;
+  --text-section--line-height: 24px;
+  --text-kpi: 28px;
+  --text-kpi--line-height: 34px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply font-sans;
+    background: var(--ground);
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--selection);
+    color: var(--text);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
