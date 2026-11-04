@@ -6,6 +6,13 @@ import {
   isProtectedDashboardPath,
   safeNextPath,
 } from "@/lib/supabase/auth-guard";
+import {
+  DEMO_USER_EMAIL,
+  createDemoSupabaseUser,
+  isDemoAccountEmail,
+  isValidDemoCookie,
+  normalizeDemoEmailInput,
+} from "@/lib/supabase/demo-auth";
 
 describe("isProtectedDashboardPath", () => {
   it("protects /dashboard and all nested Modul_1 and Modul_2 routes (Req 1.2)", () => {
@@ -61,5 +68,24 @@ describe("buildLoginRedirectPath & safeNextPath", () => {
         }
       )
     );
+  });
+});
+
+describe("demo account John helpers", () => {
+  it("normalizes 'john' shorthand into john@rintisin.ai and recognizes demo aliases", () => {
+    expect(normalizeDemoEmailInput("john")).toBe(DEMO_USER_EMAIL);
+    expect(normalizeDemoEmailInput("  JOHN  ")).toBe(DEMO_USER_EMAIL);
+    expect(normalizeDemoEmailInput("rini@contoh.id")).toBe("rini@contoh.id");
+
+    expect(isDemoAccountEmail("john")).toBe(true);
+    expect(isDemoAccountEmail("john@rintisin.ai")).toBe(true);
+    expect(isDemoAccountEmail("john@demo.com")).toBe(true);
+    expect(isDemoAccountEmail("rini@contoh.id")).toBe(false);
+
+    expect(isValidDemoCookie(DEMO_USER_EMAIL)).toBe(true);
+    expect(isValidDemoCookie("")).toBe(false);
+
+    const demoUser = createDemoSupabaseUser();
+    expect(demoUser.email).toBe(DEMO_USER_EMAIL);
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "@/lib/mock/module2";
 import { mockId, radarStore, sleep } from "@/lib/mock/store";
 import {
+  JOB_TIMEOUT_MS,
   type RadarJobDbRow,
   mapDbRowToRadarJob,
   shouldAcceptJobStatusUpdate,
@@ -30,7 +31,7 @@ export const MODULE2_SCENARIOS = [
   { value: "playbook-kosong", label: "Playbook kosong" },
 ] as const;
 
-export const JOB_TIMEOUT_MS = 300_000;
+export { JOB_TIMEOUT_MS };
 export const TERMINAL: JobStatus[] = ["COMPLETED", "FAILED"];
 export const isTerminal = (status: JobStatus) => TERMINAL.includes(status);
 
@@ -317,9 +318,17 @@ export function useRadarRun(scenario: string) {
         });
         const data = (await res.json().catch(() => ({}))) as {
           job?: RadarJob;
+          demoFallback?: boolean;
           error?: string;
           fieldErrors?: Record<number, string>;
         };
+
+        if (data.demoFallback) {
+          busyRef.current = false;
+          setSubmitting(false);
+          await runMock(urls, "");
+          return;
+        }
 
         if (!res.ok && !data.job) {
           if (isRetryAttempt) {
@@ -345,7 +354,7 @@ export function useRadarRun(scenario: string) {
         setSubmitting(false);
       }
     },
-    [commit]
+    [commit, runMock]
   );
 
   const start = (urls: string[]) => {

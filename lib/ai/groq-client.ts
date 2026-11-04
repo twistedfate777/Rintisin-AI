@@ -65,11 +65,13 @@ function buildRequestBody(
   maxTokens: number,
   temperature: number
 ): string {
+  const isReasoningModel = model.startsWith("openai/gpt-oss-");
   return JSON.stringify({
     model,
     messages,
     max_tokens: maxTokens,
     temperature,
+    ...(isReasoningModel ? { reasoning_effort: "low" } : {}),
     // Requirement 11.1: always include json_object response_format on both primary and fallback calls.
     response_format: { type: "json_object" },
   });
@@ -94,7 +96,7 @@ export async function callGroqJson(request: GroqChatRequest): Promise<GroqChatRe
 
   const fetchImpl = request.fetchFn ?? globalThis.fetch;
   const initialModel: GroqModelId = request.model ?? PRIMARY_MODEL;
-  const maxTokens = request.maxTokens ?? 1200;
+  const maxTokens = request.maxTokens ?? 4096;
   const temperature = request.temperature ?? 0.2;
   const timeoutMs = request.timeoutMs ?? GROQ_TIMEOUT_MS;
 

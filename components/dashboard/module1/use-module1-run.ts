@@ -139,7 +139,7 @@ export function useModule1Run(initial: Module1Analysis | null, scenario: string)
         const res = await fetch("/api/module1/step2", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ analysis_id: afterStep1.id }),
+          body: JSON.stringify({ analysis_id: afterStep1.id, analysis: afterStep1 }),
         });
         const payload = (await res.json()) as ApiStepResponse;
         if (payload.analysis) {

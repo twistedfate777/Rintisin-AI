@@ -1,17 +1,178 @@
 "use client";
 
 import Link from "next/link";
-import { MapPinned, Radar } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, ChevronUp, MapPinned, Radar } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/common";
 import { ViabilityBadge } from "@/components/dashboard/module1/badges";
 import { StepStatusBadge } from "@/components/dashboard/module1/step-status";
 import { JobStatusBadge } from "@/components/dashboard/module2/job-status-badge";
 import { widestGap } from "@/components/dashboard/module2/module2-report";
+import { startOnboardingTourNow } from "@/components/shell/onboarding-tour";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime, formatPercent0, formatPercent1, truncateText } from "@/lib/format";
 import { KATEGORI_LABEL, labelFor } from "@/lib/labels";
 import { useModule1Rows, useRadarRows } from "@/lib/mock/store";
+
+const CHECKLIST_DISMISSED_KEY = "rintisin_getting_started_dismissed";
+
+function GettingStartedChecklist({
+  hasIdeaAnalysis,
+  hasCompetitorAnalysis,
+}: {
+  hasIdeaAnalysis: boolean;
+  hasCompetitorAnalysis: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [tourReplayed, setTourReplayed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.sessionStorage.getItem(CHECKLIST_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  if (dismissed) return null;
+
+  const items = [
+    {
+      id: "step-tour",
+      done: tourReplayed,
+      title: "Kenali cara kerja Rintisin AI",
+      description:
+        "Pelajari fungsi menu Beranda, LokalTrend Radar, PetaSaingan Ekraf, dan Riwayat melalui panduan fitur interaktif.",
+      action: (
+        <button
+          type="button"
+          onClick={() => {
+            setTourReplayed(true);
+            startOnboardingTourNow();
+          }}
+          className="mt-2 inline-flex text-[13px] font-medium text-brand hover:underline"
+        >
+          Buka tur pengenalan fitur →
+        </button>
+      ),
+    },
+    {
+      id: "step-module1",
+      done: hasIdeaAnalysis,
+      title: "Validasi ide produk pertama Anda di LokalTrend Radar",
+      description:
+        "Masukkan deskripsi ide produk (minimal 20 karakter), kategori bisnis, modal awal, dan kota target. AI akan menghitung estimasi HPP, harga jual, margin kotor, hingga rencana Go-To-Market.",
+      action: (
+        <Link
+          href="/dashboard/lokaltrend"
+          className="mt-2 inline-flex text-[13px] font-medium text-brand hover:underline"
+        >
+          Mulai validasi ide →
+        </Link>
+      ),
+    },
+    {
+      id: "step-module2",
+      done: hasCompetitorAnalysis,
+      title: "Petakan celah kompetitor di PetaSaingan Ekraf",
+      description:
+        "Tempelkan 1 hingga 3 URL Google Maps kompetitor lokal Anda untuk membedah keluhan pelanggan mereka dan mendapatkan strategi Steal the Market Playbook.",
+      action: (
+        <Link
+          href="/dashboard/petasaingan"
+          className="mt-2 inline-flex text-[13px] font-medium text-brand hover:underline"
+        >
+          Analisis kompetitor sekarang →
+        </Link>
+      ),
+    },
+  ];
+
+  const completedCount = items.filter((item) => item.done).length;
+
+  const dismissChecklist = () => {
+    setDismissed(true);
+    try {
+      window.sessionStorage.setItem(CHECKLIST_DISMISSED_KEY, "1");
+    } catch {
+      // Ignore storage errors.
+    }
+  };
+
+  return (
+    <div
+      data-tour="checklist-onboarding"
+      className="rounded-xl border border-border bg-surface text-ink"
+    >
+      <div className="flex items-center justify-between px-5 py-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-ink">
+            Mulai menggunakan Rintisin AI
+          </h2>
+          <p className="mt-0.5 text-[13px] text-ink-muted">
+            Ikuti 3 langkah berikut untuk memaksimalkan riset ide produk dan kompetitor Anda.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="num text-[13px] font-medium text-ink-muted">
+            {completedCount}/{items.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed((prev) => !prev)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Tampilkan langkah panduan" : "Sembunyikan langkah panduan"}
+            className="flex size-8 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-hover hover:text-ink"
+          >
+            {collapsed ? (
+              <ChevronDown className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            ) : (
+              <ChevronUp className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {!collapsed ? (
+        <>
+          <ul className="divide-y divide-rule border-t border-rule">
+            {items.map((item, idx) => (
+              <li key={item.id} className="flex items-start gap-3.5 px-5 py-4">
+                <span
+                  aria-hidden="true"
+                  className={
+                    item.done
+                      ? "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-pill-positive-bg text-pill-positive-ink"
+                      : "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-pill-neutral-bg text-[12px] font-semibold text-ink-muted"
+                  }
+                >
+                  {item.done ? <Check className="size-3.5" strokeWidth={2} /> : idx + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-ink">{item.title}</p>
+                  <p className="mt-1 text-[13px] leading-[19px] text-ink-muted">
+                    {item.description}
+                  </p>
+                  {item.action}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end border-t border-rule px-5 py-3">
+            <button
+              type="button"
+              onClick={dismissChecklist}
+              className="text-[13px] font-medium text-brand hover:underline"
+            >
+              Jangan tampilkan &ldquo;Mulai menggunakan Rintisin AI&rdquo; lagi
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 function LatestLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-[13px] text-ink-muted">{children}</p>;
@@ -21,7 +182,7 @@ function LokalTrendPanel() {
   const rows = useModule1Rows();
   const latest = rows.find((r) => r.step1_status === "SUCCESS" && r.step2_status === "SUCCESS");
   return (
-    <Card className="lg:col-span-6">
+    <Card data-tour="card-lokaltrend" className="lg:col-span-6">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Radar className="size-4 text-ink-muted" strokeWidth={1.5} aria-hidden="true" />
@@ -79,7 +240,7 @@ function PetaSainganPanel() {
   const latest = rows.find((r) => r.status === "COMPLETED" && r.result);
   const gap = latest?.result ? widestGap(latest.result.competitors_breakdown) : null;
   return (
-    <Card className="lg:col-span-6">
+    <Card data-tour="card-petasaingan" className="lg:col-span-6">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MapPinned className="size-4 text-ink-muted" strokeWidth={1.5} aria-hidden="true" />
@@ -147,7 +308,7 @@ function RecentHistory() {
   const rows = [...ideas, ...radars].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
 
   return (
-    <Card>
+    <Card data-tour="card-riwayat">
       <CardHeader className="grid-cols-[1fr_auto]">
         <CardTitle>Riwayat terbaru</CardTitle>
         <div className="col-start-2 row-start-1 flex gap-4 text-sm">
@@ -189,8 +350,12 @@ function RecentHistory() {
 }
 
 export function HomeScreen() {
-  const ideaCount = useModule1Rows().length;
-  const radarCount = useRadarRows().length;
+  const ideaRows = useModule1Rows();
+  const radarRows = useRadarRows();
+  const ideaCount = ideaRows.length;
+  const radarCount = radarRows.length;
+  const hasIdeaAnalysis = ideaRows.some((r) => r.step1_status === "SUCCESS");
+  const hasCompetitorAnalysis = radarRows.some((r) => r.status === "COMPLETED");
   return (
     <>
       <PageHeader
@@ -198,6 +363,10 @@ export function HomeScreen() {
         description={`${ideaCount} analisis ide produk dan ${radarCount} analisis kompetitor tersimpan di akun Anda.`}
       />
       <div className="flex flex-col gap-[var(--gap)]">
+        <GettingStartedChecklist
+          hasIdeaAnalysis={hasIdeaAnalysis}
+          hasCompetitorAnalysis={hasCompetitorAnalysis}
+        />
         <div className="grid grid-cols-1 gap-[var(--gap)] lg:grid-cols-12">
           <LokalTrendPanel />
           <PetaSainganPanel />

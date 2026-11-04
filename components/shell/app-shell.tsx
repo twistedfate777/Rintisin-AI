@@ -3,12 +3,21 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { LogOut, Menu, X } from "lucide-react";
+import { CircleHelp, LogOut, Menu, X } from "lucide-react";
 import { cn } from "cn";
 import { BrandMark, Wordmark } from "@/components/shell/brand-mark";
 import { NAV_GROUPS, activeHref, crumbsFor } from "@/components/shell/nav-config";
+import { OnboardingTour, startOnboardingTourNow } from "@/components/shell/onboarding-tour";
 import { LOGIN_PATH } from "@/lib/supabase/auth-guard";
+import { DEMO_SESSION_COOKIE } from "@/lib/supabase/demo-auth";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+
+function navTourId(href: string): string | undefined {
+  if (href === "/dashboard") return "nav-beranda";
+  if (href === "/dashboard/lokaltrend") return "nav-lokaltrend";
+  if (href === "/dashboard/petasaingan") return "nav-petasaingan";
+  return undefined;
+}
 
 /*
  * Shell: "Tinted frame, white sheet". Grid arithmetic at 1440:
@@ -43,6 +52,8 @@ export function AppShell({
     setSigningOut(true);
     setMenuOpen(false);
     try {
+      document.cookie = `${DEMO_SESSION_COOKIE}=; path=/; max-age=0`;
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
       const supabase = createSupabaseBrowserClient();
       await supabase.auth.signOut();
     } finally {
@@ -54,7 +65,11 @@ export function AppShell({
   const nav = (
     <nav aria-label="Navigasi utama" className="flex flex-col gap-6">
       {NAV_GROUPS.map((group, index) => (
-        <div key={group.label ?? index} className="flex flex-col gap-0.5">
+        <div
+          key={group.label ?? index}
+          data-tour={group.label === "Riwayat" ? "nav-riwayat" : undefined}
+          className="flex flex-col gap-0.5"
+        >
           {group.label ? (
             <p className="mb-1.5 px-2.5 text-xs text-ink-muted">{group.label}</p>
           ) : null}
@@ -66,6 +81,7 @@ export function AppShell({
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    data-tour={navTourId(item.href)}
                     onClick={() => setMenuOpen(false)}
                     aria-current={isActive ? "page" : undefined}
                     className={cn(
@@ -93,9 +109,6 @@ export function AppShell({
           <Wordmark />
         </Link>
         {nav}
-        <p className="mt-auto px-2.5 text-xs leading-4 text-ink-muted">
-          Mode demo: semua hasil di aplikasi ini adalah data contoh.
-        </p>
       </aside>
 
       {/* Top bar, desktop: the page's place and the account */}
@@ -110,7 +123,15 @@ export function AppShell({
             ))}
           </ol>
         </nav>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={startOnboardingTourNow}
+            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm text-ink transition-colors hover:bg-hover"
+          >
+            <CircleHelp className="size-4 text-ink-muted" strokeWidth={1.5} aria-hidden="true" />
+            Panduan
+          </button>
           {userEmail ? <span className="text-sm text-ink-muted">{userEmail}</span> : null}
           <button
             type="button"
@@ -167,6 +188,17 @@ export function AppShell({
             {userEmail ? <span className="px-2.5 text-sm text-ink-muted">{userEmail}</span> : null}
             <button
               type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                startOnboardingTourNow();
+              }}
+              className="flex h-11 items-center gap-2.5 rounded-md px-2.5 text-sm text-ink hover:bg-hover"
+            >
+              <CircleHelp className="size-4 text-ink-muted" strokeWidth={1.5} aria-hidden="true" />
+              Panduan fitur
+            </button>
+            <button
+              type="button"
               onClick={signOut}
               disabled={signingOut}
               className="flex h-11 items-center gap-2.5 rounded-md px-2.5 text-sm text-ink hover:bg-hover disabled:opacity-50"
@@ -174,9 +206,6 @@ export function AppShell({
               <LogOut className="size-4 text-ink-muted" strokeWidth={1.5} aria-hidden="true" />
               {signingOut ? "Keluar…" : "Keluar"}
             </button>
-            <p className="px-2.5 text-xs text-ink-muted">
-              Mode demo: semua hasil di aplikasi ini adalah data contoh.
-            </p>
           </div>
         </div>
       ) : null}
@@ -187,6 +216,7 @@ export function AppShell({
       >
         <div className="px-4 pt-5 pb-12 sm:px-6 lg:px-[var(--pad)] lg:pt-6">{children}</div>
       </main>
+      <OnboardingTour userEmail={userEmail} />
     </div>
   );
 }

@@ -193,9 +193,17 @@ interface GuardTracker {
   degraded: boolean;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwn(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
 function asRecord(value: unknown, tracker: GuardTracker): Record<string, unknown> {
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+  if (isPlainRecord(value)) {
+    return value;
   }
   tracker.degraded = true;
   return {};
@@ -388,8 +396,39 @@ export function guardStep1Object(raw: unknown): GuardResult<Step1Result> {
   };
 
   // 2. target_market_mapper
-  const mapperRaw = asRecord(root.target_market_mapper, tracker);
-  const segmentRaw = asRecord(mapperRaw.primary_segment, tracker);
+  let mapperRaw: Record<string, unknown>;
+  if (hasOwn(root, "target_market_mapper") && isPlainRecord(root.target_market_mapper)) {
+    mapperRaw = root.target_market_mapper;
+  } else if (hasOwn(root, "target_market") && isPlainRecord(root.target_market)) {
+    tracker.degraded = true;
+    mapperRaw = root.target_market;
+  } else if (hasOwn(root, "targetMarketMapper") && isPlainRecord(root.targetMarketMapper)) {
+    tracker.degraded = true;
+    mapperRaw = root.targetMarketMapper;
+  } else if (hasOwn(auditRaw, "target_market_mapper") && isPlainRecord(auditRaw.target_market_mapper)) {
+    tracker.degraded = true;
+    mapperRaw = auditRaw.target_market_mapper;
+  } else if (hasOwn(root, "primary_segment") || hasOwn(root, "effective_channels")) {
+    tracker.degraded = true;
+    mapperRaw = root;
+  } else {
+    mapperRaw = asRecord(root.target_market_mapper, tracker);
+  }
+
+  let segmentRaw: Record<string, unknown>;
+  if (hasOwn(mapperRaw, "primary_segment") && isPlainRecord(mapperRaw.primary_segment)) {
+    segmentRaw = mapperRaw.primary_segment;
+  } else if (
+    hasOwn(mapperRaw, "persona_label") ||
+    hasOwn(mapperRaw, "purchasing_power") ||
+    hasOwn(mapperRaw, "buying_behavior") ||
+    hasOwn(mapperRaw, "core_pain_points")
+  ) {
+    tracker.degraded = true;
+    segmentRaw = mapperRaw;
+  } else {
+    segmentRaw = asRecord(mapperRaw.primary_segment, tracker);
+  }
 
   // Requirement 7.4: keep at most 5 core_pain_points.
   const corePainPoints = guardStringArray(segmentRaw.core_pain_points, tracker, 5);
@@ -480,7 +519,31 @@ export function guardStep2Object(raw: unknown): GuardResult<Step2Result> {
   }
 
   // 2. gtm_readiness
-  const gtmRaw = asRecord(root.gtm_readiness, tracker);
+  let gtmRaw: Record<string, unknown>;
+  if (hasOwn(root, "gtm_readiness") && isPlainRecord(root.gtm_readiness)) {
+    gtmRaw = root.gtm_readiness;
+  } else if (hasOwn(root, "go_to_market_readiness") && isPlainRecord(root.go_to_market_readiness)) {
+    tracker.degraded = true;
+    gtmRaw = root.go_to_market_readiness;
+  } else if (hasOwn(root, "gtm") && isPlainRecord(root.gtm)) {
+    tracker.degraded = true;
+    gtmRaw = root.gtm;
+  } else if (hasOwn(root, "gtmReadiness") && isPlainRecord(root.gtmReadiness)) {
+    tracker.degraded = true;
+    gtmRaw = root.gtmReadiness;
+  } else if (hasOwn(matrixRaw, "gtm_readiness") && isPlainRecord(matrixRaw.gtm_readiness)) {
+    tracker.degraded = true;
+    gtmRaw = matrixRaw.gtm_readiness;
+  } else if (
+    hasOwn(root, "readiness_verdict") ||
+    hasOwn(root, "priority_action_plan") ||
+    hasOwn(root, "overall_score")
+  ) {
+    tracker.degraded = true;
+    gtmRaw = root;
+  } else {
+    gtmRaw = asRecord(root.gtm_readiness, tracker);
+  }
   const overallScore = guardScore0To100(gtmRaw.overall_score, tracker, true, DEFAULT_NUMBER).value;
   const readinessVerdict = guardNonEmptyString(gtmRaw.readiness_verdict, tracker);
   const mandatoryRevisions = guardStringArray(gtmRaw.mandatory_revisions, tracker);
@@ -687,6 +750,25 @@ function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false 
   try {
     return { ok: true, value: JSON.parse(text) };
   } catch {
+    // Strip markdown code fences if the LLM wrapped the JSON block
+    const trimmed = text.trim();
+    const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+    if (fenceMatch) {
+      try {
+        return { ok: true, value: JSON.parse(fenceMatch[1]) };
+      } catch {
+        // continue
+      }
+    }
+    const firstBrace = trimmed.indexOf("{");
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return { ok: true, value: JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) };
+      } catch {
+        // continue
+      }
+    }
     return { ok: false };
   }
 }
@@ -724,11 +806,62 @@ async function parseWithSingleRetry(
   return { parsed: null, modelUsed: options.modelUsed, retried: false };
 }
 
+function isStep1TargetMarketEmpty(data: Step1Result): boolean {
+  const tm = data.target_market_mapper;
+  return (
+    tm.primary_segment.persona_label === DEFAULT_TEXT &&
+    tm.primary_segment.purchasing_power === DEFAULT_TEXT &&
+    tm.effective_channels.length === 0
+  );
+}
+
+function isStep2GtmEmpty(data: Step2Result): boolean {
+  const gtm = data.gtm_readiness;
+  return (
+    gtm.readiness_verdict === DEFAULT_TEXT &&
+    gtm.overall_score === DEFAULT_NUMBER &&
+    gtm.priority_action_plan.length === 0
+  );
+}
+
 export async function guardStep1Response(
   options: GuardGroqOptions
 ): Promise<GuardGroqOutput<Step1Result>> {
   const { parsed, modelUsed, retried } = await parseWithSingleRetry(options);
   const guarded = guardStep1Object(parsed);
+
+  const remainingMs = options.remainingTimeMs ?? MIN_RETRY_BUDGET_MS;
+  const minBudgetMs = options.minRetryBudgetMs ?? MIN_RETRY_BUDGET_MS;
+
+  if (!retried && isStep1TargetMarketEmpty(guarded.data) && options.retryCall && remainingMs >= minBudgetMs) {
+    try {
+      const secondResponse = await options.retryCall();
+      const secondAttempt = tryParseJson(secondResponse.rawText);
+      if (secondAttempt.ok) {
+        const secondGuarded = guardStep1Object(secondAttempt.value);
+        if (!isStep1TargetMarketEmpty(secondGuarded.data)) {
+          const useFirstAudit =
+            secondGuarded.data.feasibility_audit.recommended_selling_price_idr === DEFAULT_NUMBER &&
+            guarded.data.feasibility_audit.recommended_selling_price_idr > 0;
+          const mergedData: Step1Result = {
+            feasibility_audit: useFirstAudit
+              ? guarded.data.feasibility_audit
+              : secondGuarded.data.feasibility_audit,
+            target_market_mapper: secondGuarded.data.target_market_mapper,
+          };
+          const revalidated = guardStep1Object(mergedData);
+          return {
+            ...revalidated,
+            modelUsed: secondResponse.modelUsed,
+            retried: true,
+          };
+        }
+      }
+    } catch {
+      // Keep first guarded result if retry fails
+    }
+  }
+
   return { ...guarded, modelUsed, retried };
 }
 
@@ -737,6 +870,39 @@ export async function guardStep2Response(
 ): Promise<GuardGroqOutput<Step2Result>> {
   const { parsed, modelUsed, retried } = await parseWithSingleRetry(options);
   const guarded = guardStep2Object(parsed);
+
+  const remainingMs = options.remainingTimeMs ?? MIN_RETRY_BUDGET_MS;
+  const minBudgetMs = options.minRetryBudgetMs ?? MIN_RETRY_BUDGET_MS;
+
+  if (!retried && isStep2GtmEmpty(guarded.data) && options.retryCall && remainingMs >= minBudgetMs) {
+    try {
+      const secondResponse = await options.retryCall();
+      const secondAttempt = tryParseJson(secondResponse.rawText);
+      if (secondAttempt.ok) {
+        const secondGuarded = guardStep2Object(secondAttempt.value);
+        if (!isStep2GtmEmpty(secondGuarded.data)) {
+          const useFirstMatrix =
+            secondGuarded.data.competitor_matrix.recommended_uvp === DEFAULT_TEXT &&
+            guarded.data.competitor_matrix.recommended_uvp !== DEFAULT_TEXT;
+          const mergedData: Step2Result = {
+            competitor_matrix: useFirstMatrix
+              ? guarded.data.competitor_matrix
+              : secondGuarded.data.competitor_matrix,
+            gtm_readiness: secondGuarded.data.gtm_readiness,
+          };
+          const revalidated = guardStep2Object(mergedData);
+          return {
+            ...revalidated,
+            modelUsed: secondResponse.modelUsed,
+            retried: true,
+          };
+        }
+      }
+    } catch {
+      // Keep first guarded result if retry fails
+    }
+  }
+
   return { ...guarded, modelUsed, retried };
 }
 

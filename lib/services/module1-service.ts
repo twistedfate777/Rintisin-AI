@@ -27,8 +27,8 @@ import {
 // Constants & System Prompt (Requirement 5.2, 5.4, 5.6, 5.9, 5.10)
 // ============================================================================
 
-export const MODULE1_MAX_TOKENS = 1200;
-export const SERVER_STEP_DEADLINE_MS = 10_000;
+export const MODULE1_MAX_TOKENS = 4096;
+export const SERVER_STEP_DEADLINE_MS = 25_000;
 
 /**
  * Exact system prompt required by Requirement 5.9.
@@ -113,7 +113,7 @@ export function buildStep1Messages(input: IdeaInput): GroqMessage[] {
   return [
     {
       role: "system",
-      content: `${MODULE1_BASE_SYSTEM_PROMPT}\n\nKetentuan Tambahan Wajib:\n1. Seluruh nilai teks WAJIB ditulis dalam Bahasa Indonesia yang profesional, tajam, dan praktis.\n2. Pertimbangkan logistik ekspedisi lokal Indonesia, daya beli spesifik di ${input.target_city}, potongan komisi marketplace/ojek online di Indonesia, serta perizinan yang relevan untuk kategori ${input.category} (${licensingContext}).\n\nSkema JSON Wajib (hanya objek feasibility_audit dan target_market_mapper):\n${STEP1_JSON_SCHEMA_SPEC}`,
+      content: `${MODULE1_BASE_SYSTEM_PROMPT}\n\nKetentuan Tambahan Wajib:\n1. Seluruh nilai teks WAJIB ditulis dalam Bahasa Indonesia yang profesional, tajam, dan praktis.\n2. Pertimbangkan logistik ekspedisi lokal Indonesia, daya beli spesifik di ${input.target_city}, potongan komisi marketplace/ojek online di Indonesia, serta perizinan yang relevan untuk kategori ${input.category} (${licensingContext}).\n3. Respons JSON Anda WAJIB memiliki KEDUA kunci level atas ("feasibility_audit" DAN "target_market_mapper") secara lengkap. Jangan mengosongkan "target_market_mapper", "primary_segment" (persona_label, purchasing_power, core_pain_points minimal 3 butir, buying_behavior), maupun "effective_channels" (minimal 3 kanal distribusi).\n\nSkema JSON Wajib (wajib memuat feasibility_audit dan target_market_mapper secara utuh):\n${STEP1_JSON_SCHEMA_SPEC}`,
     },
     {
       role: "user",
@@ -161,7 +161,7 @@ export function buildStep2Messages(input: IdeaInput, step1Result: Step1Result): 
   return [
     {
       role: "system",
-      content: `${MODULE1_BASE_SYSTEM_PROMPT}\n\nKetentuan Tambahan Wajib:\n1. Seluruh nilai teks WAJIB ditulis dalam Bahasa Indonesia yang profesional, tajam, dan praktis.\n2. Pertimbangkan logistik ekspedisi lokal Indonesia, daya beli spesifik di ${input.target_city}, potongan komisi marketplace/ojek online di Indonesia, serta perizinan yang relevan untuk kategori ${input.category} (${licensingContext}).\n\nSkema JSON Wajib (hanya objek competitor_matrix dan gtm_readiness):\n${STEP2_JSON_SCHEMA_SPEC}`,
+      content: `${MODULE1_BASE_SYSTEM_PROMPT}\n\nKetentuan Tambahan Wajib:\n1. Seluruh nilai teks WAJIB ditulis dalam Bahasa Indonesia yang profesional, tajam, dan praktis.\n2. Pertimbangkan logistik ekspedisi lokal Indonesia, daya beli spesifik di ${input.target_city}, potongan komisi marketplace/ojek online di Indonesia, serta perizinan yang relevan untuk kategori ${input.category} (${licensingContext}).\n3. Respons JSON Anda WAJIB memiliki KEDUA kunci level atas ("competitor_matrix" DAN "gtm_readiness") secara lengkap. Jangan mengosongkan "gtm_readiness" (overall_score 1-100, readiness_verdict, mandatory_revisions minimal 2 butir, dan priority_action_plan minimal 3 langkah).\n\nSkema JSON Wajib (wajib memuat competitor_matrix dan gtm_readiness secara utuh):\n${STEP2_JSON_SCHEMA_SPEC}`,
     },
     {
       role: "user",

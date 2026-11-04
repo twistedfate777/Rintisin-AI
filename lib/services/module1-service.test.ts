@@ -25,7 +25,7 @@ describe("module1-service prompts & mapping (Requirement 5, 10, 12.7)", () => {
     expect(step2Msgs[1].content).toContain(mockStep1.target_market_mapper.primary_segment.persona_label);
   });
 
-  it("executes Step 1 and Step 2 with maxTokens 1200 and passes output through Response_Guard (Req 5.2–5.5)", async () => {
+  it("executes Step 1 and Step 2 with MODULE1_MAX_TOKENS and passes output through Response_Guard (Req 5.2–5.5)", async () => {
     const caller1 = vi.fn().mockResolvedValueOnce({
       rawText: JSON.stringify(mockStep1),
       modelUsed: "openai/gpt-oss-120b" as const,

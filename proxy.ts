@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { buildLoginRedirectPath, isProtectedDashboardPath } from "@/lib/supabase/auth-guard";
+import { DEMO_SESSION_COOKIE, isValidDemoCookie } from "@/lib/supabase/demo-auth";
+import { createSupabaseFetch, getSupabaseConfig } from "@/lib/supabase/env";
 
 /**
  * Next.js 16 request proxy: refreshes Supabase auth cookies and redirects unauthenticated
@@ -9,11 +11,17 @@ import { buildLoginRedirectPath, isProtectedDashboardPath } from "@/lib/supabase
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (isValidDemoCookie(request.cookies.get(DEMO_SESSION_COOKIE)?.value)) {
+    return supabaseResponse;
+  }
 
-  if (!url || !publishableKey) {
+  let url = "";
+  let publishableKey = "";
+  try {
+    const cfg = getSupabaseConfig();
+    url = cfg.url;
+    publishableKey = cfg.publishableKey;
+  } catch {
     if (isProtectedDashboardPath(request.nextUrl.pathname)) {
       const redirectUrl = new URL(
         buildLoginRedirectPath(request.nextUrl.pathname, request.nextUrl.search),
@@ -25,6 +33,12 @@ export async function proxy(request: NextRequest) {
   }
 
   const supabase = createServerClient(url, publishableKey, {
+    global: {
+      fetch: createSupabaseFetch(url, publishableKey),
+      headers: {
+        apikey: publishableKey,
+      },
+    },
     cookies: {
       getAll() {
         return request.cookies.getAll();

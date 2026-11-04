@@ -2,20 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import {
+  DEMO_SESSION_COOKIE,
+  createDemoSupabaseUser,
+  isValidDemoCookie,
+} from "@/lib/supabase/demo-auth";
+import { createSupabaseFetch, getSupabaseConfig } from "@/lib/supabase/env";
 
 export const UNAUTHORIZED_MESSAGE = "Sesi Anda telah berakhir. Silakan masuk kembali.";
-
-function getSupabaseServerEnv() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !publishableKey) {
-    throw new Error("Konfigurasi server Supabase belum lengkap.");
-  }
-
-  return { url, publishableKey };
-}
 
 /**
  * Server-side Supabase client bound to the current request cookies.
@@ -23,9 +17,15 @@ function getSupabaseServerEnv() {
  */
 export async function createSupabaseServerClient(): Promise<SupabaseClient> {
   const cookieStore = await cookies();
-  const { url, publishableKey } = getSupabaseServerEnv();
+  const { url, publishableKey } = getSupabaseConfig();
 
   return createServerClient(url, publishableKey, {
+    global: {
+      fetch: createSupabaseFetch(url, publishableKey),
+      headers: {
+        apikey: publishableKey,
+      },
+    },
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -45,7 +45,7 @@ export async function createSupabaseServerClient(): Promise<SupabaseClient> {
 }
 
 export type AuthenticatedContext =
-  | { ok: true; supabase: SupabaseClient; user: User }
+  | { ok: true; supabase: SupabaseClient; user: User; isDemo?: boolean }
   | { ok: false; status: 401; error: string; response: NextResponse };
 
 /**
@@ -54,22 +54,29 @@ export type AuthenticatedContext =
  */
 export async function requireAuthenticatedUser(): Promise<AuthenticatedContext> {
   try {
+    const cookieStore = await cookies();
+    const isDemoSession = isValidDemoCookie(cookieStore.get(DEMO_SESSION_COOKIE)?.value);
+
     const supabase = await createSupabaseServerClient();
     const {
       data: { user },
       error,
     } = await supabase.auth.getUser();
 
-    if (error || !user) {
-      return {
-        ok: false,
-        status: 401,
-        error: UNAUTHORIZED_MESSAGE,
-        response: NextResponse.json({ error: UNAUTHORIZED_MESSAGE }, { status: 401 }),
-      };
+    if (!error && user) {
+      return { ok: true, supabase, user };
     }
 
-    return { ok: true, supabase, user };
+    if (isDemoSession) {
+      return { ok: true, supabase, user: createDemoSupabaseUser(), isDemo: true };
+    }
+
+    return {
+      ok: false,
+      status: 401,
+      error: UNAUTHORIZED_MESSAGE,
+      response: NextResponse.json({ error: UNAUTHORIZED_MESSAGE }, { status: 401 }),
+    };
   } catch {
     return {
       ok: false,

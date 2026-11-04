@@ -54,11 +54,13 @@ function LokalTrendBody({ scenario }: { scenario: string }) {
           ) : null
         }
       />
-      <DemoSwitcher
-        basePath="/dashboard/lokaltrend"
-        states={[...MODULE1_SCENARIOS]}
-        current={scenario}
-      />
+      {scenario ? (
+        <DemoSwitcher
+          basePath="/dashboard/lokaltrend"
+          states={[...MODULE1_SCENARIOS]}
+          current={scenario}
+        />
+      ) : null}
 
       {analysis ? (
         <Module1Report analysis={analysis} onRetryStep1={retryStep1} onRetryStep2={retryStep2} />

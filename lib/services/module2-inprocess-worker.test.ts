@@ -1,10 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  acquireCompetitorReviewsRpc,
   extractFeatureIdFromFullUrl,
   formatCanonicalMapsUrl,
   isAllowedRedirectUrl,
   normalizeReviewText,
+  resolveAndParseMapsUrl,
   runPreFilter,
 } from "@/lib/services/module2-inprocess-worker";
 import { isExternalWorkerConfigured } from "@/lib/services/module2-service";
@@ -77,5 +79,85 @@ describe("module2-inprocess-worker (Vercel Serverless Mode)", () => {
     expect(isExternalWorkerConfigured("internal")).toBe(false);
     expect(isExternalWorkerConfigured("https://<space-name>.hf.space")).toBe(false);
     expect(isExternalWorkerConfigured("https://my-worker.example.com")).toBe(true);
+  });
+
+  it("upgrades 0x0:0x<cid> from maps.app.goo.gl shortlinks via HTML fallback", async () => {
+    const mockFetch: typeof fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "https://maps.app.goo.gl/HJNLpewubRVJtbrUA") {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              "https://www.google.com/maps/place/Kopi+Nusantara/data=!4m2!3m1!1s0x0:0x9f1e2d3c4b5a6978?g_st=ac",
+          },
+        });
+      }
+      return new Response(
+        '<html><head><link href="/maps/preview/place?pb=!1m2!1y123!2y456!1s0x2e69f3e945e34b9d%3A0x9f1e2d3c4b5a6978" rel="preload"></head></html>',
+        { status: 200 }
+      );
+    };
+
+    const parsed = await resolveAndParseMapsUrl(
+      "https://maps.app.goo.gl/HJNLpewubRVJtbrUA",
+      mockFetch
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.featureId).toBe("0x2e69f3e945e34b9d:0x9f1e2d3c4b5a6978");
+    expect(parsed.resolvedUrl).toContain("https://www.google.com/maps/place/Kopi+Nusantara");
+  });
+
+  it("extracts natural-language review text while ignoring base64 CAES/ChZ tokens in listugcposts", async () => {
+    const longBase64Token =
+      "CAESY0NBRVFDaHBFUTJwRlNVRlNTWEJEWjI5QlVEY3lSM2QzWXpKVGJsOWZSV2hFUVVGQlIyZHVNRzR0V1Zoa2NsSmZSVUZCUVVGQlIyZHVNRzR0V1Zoa2NsSmZSVUZCUVVGQg==";
+    const rpcPayload =
+      ")]}'\n" +
+      JSON.stringify([
+        null,
+        "",
+        [
+          [
+            [
+              "ChZDSUhNMG9nS0VJQ0FnSUNVck95Z1JnEAE",
+              ["Budi Santoso", null, null, "2 minggu lalu"],
+              [
+                [5],
+                null,
+                longBase64Token,
+                [
+                  "Kopinya sangat enak, tempatnya nyaman buat kerja seharian dan pelayanannya ramah sekali.",
+                ],
+              ],
+              1710000000000,
+            ],
+          ],
+        ],
+      ]);
+
+    const mockFetch: typeof fetch = async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("listugcposts")) {
+        return new Response(rpcPayload, { status: 200 });
+      }
+      return new Response(
+        '<html><head><meta property="og:title" content="Kopi Nusantara · Kedai Kopi"><meta property="og:description" content="★★★★☆ · 4,7 · Kedai Kopi"></head></html>',
+        { status: 200 }
+      );
+    };
+
+    const res = await acquireCompetitorReviewsRpc(
+      "https://www.google.com/maps/place/Kopi+Nusantara",
+      "0x2e69f3e945e34b9d:0x9f1e2d3c4b5a6978",
+      mockFetch
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.competitorName).toBe("Kopi Nusantara");
+    expect(res.avgRating).toBe(4.7);
+    expect(res.reviews).toHaveLength(1);
+    expect(res.reviews[0]?.text).toBe(
+      "Kopinya sangat enak, tempatnya nyaman buat kerja seharian dan pelayanannya ramah sekali."
+    );
   });
 });

@@ -54,6 +54,7 @@ export interface MapsUrlParseResult {
   ok: boolean;
   featureId?: string;
   canonicalUrl?: string;
+  resolvedUrl?: string;
   reason?: string;
 }
 
@@ -82,12 +83,33 @@ export function isFullGoogleMapsUrl(url: string): boolean {
   return FULL_MAPS_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
+const EXPLICIT_PLACE_FID_GLOBAL_RE =
+  /(?:!1s|ftid=)(0x[0-9a-fA-F]{1,16}:0x[0-9a-fA-F]{1,16})(?![0-9a-fA-F])/gi;
+
 export function extractFeatureIdFromFullUrl(url: string): MapsUrlParseResult {
   if (!isFullGoogleMapsUrl(url)) {
     return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
   }
-  const candidates = [url, url.replace(/%3A/gi, ":")];
+  let decodedUrl = url;
+  try {
+    decodedUrl = decodeURIComponent(url);
+  } catch {
+    decodedUrl = url.replace(/%3A/gi, ":");
+  }
+  const candidates = [decodedUrl, url.replace(/%3A/gi, ":"), url];
   for (const candidate of candidates) {
+    const explicitMatches = Array.from(candidate.matchAll(EXPLICIT_PLACE_FID_GLOBAL_RE));
+    if (explicitMatches.length > 0) {
+      const lastExplicit = explicitMatches[explicitMatches.length - 1]?.[1];
+      if (lastExplicit) {
+        const fid = lastExplicit.toLowerCase();
+        return {
+          ok: true,
+          featureId: fid,
+          canonicalUrl: formatCanonicalMapsUrl(fid),
+        };
+      }
+    }
     const match = FEATURE_ID_SUBSTRING_RE.exec(candidate);
     if (match?.[1]) {
       const fid = match[1].toLowerCase();
@@ -101,13 +123,108 @@ export function extractFeatureIdFromFullUrl(url: string): MapsUrlParseResult {
   return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
 }
 
+async function extractFeatureIdFromHtmlFallback(
+  url: string,
+  fetchImpl: typeof fetch,
+  partialFid?: string
+): Promise<MapsUrlParseResult> {
+  if (!isAllowedRedirectUrl(url)) {
+    return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const resp = await fetchImpl(url, {
+      method: "GET",
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept-Language": "id-ID,id;q=0.9",
+      },
+    });
+    if (!resp.ok) {
+      return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
+    }
+    const rawHtml = await resp.text();
+    let html = rawHtml;
+    try {
+      html = rawHtml.replace(/%3A/gi, ":");
+    } catch {
+      html = rawHtml;
+    }
+
+    // 0. If we have a partial `0x0:0x<cid>` featureId from a mobile share URL, find the matching full `0x<cell>:0x<cid>`
+    if (partialFid && partialFid.startsWith("0x0:")) {
+      const cidHex = partialFid.slice(4);
+      const cidUpgradeRe = new RegExp(
+        `(?<![0-9a-fA-F])(0x[1-9a-fA-F][0-9a-fA-F]{0,15}:${cidHex})(?![0-9a-fA-F])`,
+        "i"
+      );
+      const upgraded = cidUpgradeRe.exec(html);
+      if (upgraded?.[1]) {
+        const fid = upgraded[1].toLowerCase();
+        return {
+          ok: true,
+          featureId: fid,
+          canonicalUrl: formatCanonicalMapsUrl(fid),
+          resolvedUrl: url,
+        };
+      }
+    }
+
+    // 1. Prefer explicit `!1s0x...:0x...` or `/maps/preview/place` preload link in the HTML (preferring non-0x0:)
+    const explicitMatches = Array.from(html.matchAll(EXPLICIT_PLACE_FID_GLOBAL_RE));
+    const nonZeroExplicit = explicitMatches.find(
+      (m) => m[1] && !m[1].toLowerCase().startsWith("0x0:")
+    );
+    const chosenExplicit = nonZeroExplicit?.[1] ?? explicitMatches[0]?.[1];
+    if (chosenExplicit) {
+      const fid = chosenExplicit.toLowerCase();
+      return {
+        ok: true,
+        featureId: fid,
+        canonicalUrl: formatCanonicalMapsUrl(fid),
+        resolvedUrl: url,
+      };
+    }
+
+    // 2. Fallback to any `0x...:0x...` in the HTML
+    const match = FEATURE_ID_SUBSTRING_RE.exec(html);
+    if (match?.[1]) {
+      const fid = match[1].toLowerCase();
+      return {
+        ok: true,
+        featureId: fid,
+        canonicalUrl: formatCanonicalMapsUrl(fid),
+        resolvedUrl: url,
+      };
+    }
+    return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
+  } catch {
+    return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function resolveAndParseMapsUrl(
   rawUrl: string,
   fetchImpl: typeof fetch = globalThis.fetch
 ): Promise<MapsUrlParseResult> {
   const trimmed = rawUrl.trim();
   if (isFullGoogleMapsUrl(trimmed)) {
-    return extractFeatureIdFromFullUrl(trimmed);
+    const direct = extractFeatureIdFromFullUrl(trimmed);
+    if (direct.ok) {
+      if (direct.featureId?.startsWith("0x0:")) {
+        const upgraded = await extractFeatureIdFromHtmlFallback(trimmed, fetchImpl, direct.featureId);
+        if (upgraded.ok && upgraded.featureId && !upgraded.featureId.startsWith("0x0:")) {
+          return upgraded;
+        }
+      }
+      return { ...direct, resolvedUrl: trimmed };
+    }
+    return extractFeatureIdFromHtmlFallback(trimmed, fetchImpl);
   }
   if (!SHORTLINK_PREFIXES.some((p) => trimmed.startsWith(p)) || !isAllowedRedirectUrl(trimmed)) {
     return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
@@ -117,10 +234,24 @@ export async function resolveAndParseMapsUrl(
   let currentUrl = trimmed;
   let hops = 0;
 
-  while (!isFullGoogleMapsUrl(currentUrl)) {
-    if (hops >= MAX_REDIRECT_HOPS) {
-      return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
+  while (hops < MAX_REDIRECT_HOPS) {
+    if (isFullGoogleMapsUrl(currentUrl)) {
+      const extracted = extractFeatureIdFromFullUrl(currentUrl);
+      if (extracted.ok) {
+        if (extracted.featureId?.startsWith("0x0:")) {
+          const upgraded = await extractFeatureIdFromHtmlFallback(
+            currentUrl,
+            fetchImpl,
+            extracted.featureId
+          );
+          if (upgraded.ok && upgraded.featureId && !upgraded.featureId.startsWith("0x0:")) {
+            return upgraded;
+          }
+        }
+        return { ...extracted, resolvedUrl: currentUrl };
+      }
     }
+
     const remaining = deadline - Date.now();
     if (remaining <= 0 || !isAllowedRedirectUrl(currentUrl)) {
       return { ok: false, reason: UNRECOGNIZED_MAPS_URL_REASON };
@@ -136,6 +267,7 @@ export async function resolveAndParseMapsUrl(
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          "Accept-Language": "id-ID,id;q=0.9",
         },
       });
       if ([301, 302, 303, 307, 308].includes(resp.status)) {
@@ -159,7 +291,21 @@ export async function resolveAndParseMapsUrl(
     }
   }
 
-  return extractFeatureIdFromFullUrl(currentUrl);
+  const fromResolvedUrl = extractFeatureIdFromFullUrl(currentUrl);
+  if (fromResolvedUrl.ok) {
+    if (fromResolvedUrl.featureId?.startsWith("0x0:")) {
+      const upgraded = await extractFeatureIdFromHtmlFallback(
+        currentUrl,
+        fetchImpl,
+        fromResolvedUrl.featureId
+      );
+      if (upgraded.ok && upgraded.featureId && !upgraded.featureId.startsWith("0x0:")) {
+        return upgraded;
+      }
+    }
+    return { ...fromResolvedUrl, resolvedUrl: currentUrl };
+  }
+  return extractFeatureIdFromHtmlFallback(currentUrl, fetchImpl);
 }
 
 // ============================================================================
@@ -269,7 +415,12 @@ export function runPreFilter(rawReviews: RawScrapedReview[]): CleanReview[] {
     selectedCrit = critical.slice(0, 40 + (40 - selectedPos.length));
   }
 
-  return [...selectedCrit, ...selectedPos]
+  const combined = [...selectedCrit, ...selectedPos];
+  if (combined.length === 0 && unique.length > 0) {
+    return unique.slice(0, 80).map((r) => ({ rating: r.rating, text: r.text }));
+  }
+
+  return combined
     .slice(0, 80)
     .map((r) => ({ rating: r.rating, text: r.text }));
 }
@@ -280,22 +431,81 @@ export function runPreFilter(rawReviews: RawScrapedReview[]): CleanReview[] {
 
 const PRIMARY_RPC_URL = "https://www.google.com/maps/rpc/listugcposts";
 
-function buildRpcPbParam(featureId: string, sortCode: number, pageToken = ""): string {
+function buildRpcPbCandidates(featureId: string, sortCode: number, pageToken = ""): string[] {
   const fid = encodeURIComponent(featureId);
   const tok = encodeURIComponent(pageToken);
-  return `!1m6!1s${fid}!6m4!4m1!1e1!4m1!1e3!2m2!1i20!2s${tok}!5m2!1s!7e81!8m9!2b1!3b1!5b1!7b1!12m4!1b1!2b1!4m1!1e1!11m0!13m1!1e${sortCode}`;
+  const pageBlock10 = pageToken ? `!2m2!1i10!2s${tok}` : `!2m1!1i10`;
+  const pageBlock20 = `!2m2!1i20!2s${tok}`;
+
+  return [
+    // 1. Standard Google Maps web client `listugcposts` pb format
+    `!1m6!1s${fid}!6m4!4m1!1e1!4m1!1e3${pageBlock10}!5m2!1s!7e81!8m9!2b1!3b1!5b1!7b1!12m4!1b1!2b1!4m1!1e1!11m4!1e3!2e1!6m1!1e2!13m1!1e${sortCode}`,
+    // 2. Compact pb format without empty 5m2!1s or 11m0
+    `!1m6!1s${fid}!6m4!4m1!1e1!4m1!1e3${pageBlock10}!5m1!7e81!8m5!1b1!2b1!3b1!5b1!7b1!13m1!1e${sortCode}`,
+    // 3. Unencoded colon featureId variant
+    `!1m6!1s${featureId}!6m4!4m1!1e1!4m1!1e3${pageBlock10}!5m2!1s!7e81!8m9!2b1!3b1!5b1!7b1!12m4!1b1!2b1!4m1!1e1!11m4!1e3!2e1!6m1!1e2!13m1!1e${sortCode}`,
+    // 4. Legacy 20-item pb format
+    `!1m6!1s${fid}!6m4!4m1!1e1!4m1!1e3${pageBlock20}!5m2!1s!7e81!8m9!2b1!3b1!5b1!7b1!12m4!1b1!2b1!4m1!1e1!13m1!1e${sortCode}`,
+  ];
+}
+
+const NON_REVIEW_TOKEN_RE = /^(?:CAES|ChZ|Chd|0ahUKE|CiR|AF1Qip|https?:\/\/|0x[0-9a-fA-F])/i;
+const RELATIVE_TIME_ONLY_RE =
+  /^(?:sebulan|setahun|seminggu|sehari|\d+\s+(?:detik|menit|jam|hari|minggu|bulan|tahun))\s+(?:yang\s+)?lalu$/i;
+
+function isLikelyNaturalReviewString(value: string): boolean {
+  const s = value.trim();
+  if (s.length < 8) return false;
+  if (NON_REVIEW_TOKEN_RE.test(s)) return false;
+  if (!s.includes(" ")) return false;
+  if (RELATIVE_TIME_ONLY_RE.test(s)) return false;
+  return true;
 }
 
 function collectCandidateStrings(node: unknown, acc: string[]): void {
   if (typeof node === "string") {
-    if (node.length >= 4 && !node.startsWith("http") && !node.startsWith("0x")) {
-      acc.push(node);
+    if (isLikelyNaturalReviewString(node)) {
+      acc.push(node.trim());
     }
   } else if (Array.isArray(node)) {
     for (const child of node) {
       collectCandidateStrings(child, acc);
     }
   }
+}
+
+function extractRatingFromNode(inner: unknown[], fullEntry: unknown[]): number | null {
+  const checkIntRating = (v: unknown): number | null =>
+    typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 5 ? v : null;
+
+  // 1. Standard `inner[2][0][0]` or `inner[2][0]`
+  if (Array.isArray(inner[2])) {
+    const sub = inner[2];
+    if (Array.isArray(sub[0])) {
+      const r = checkIntRating(sub[0][0]);
+      if (r !== null) return r;
+    }
+    const rDirect = checkIntRating(sub[0]);
+    if (rDirect !== null) return rDirect;
+  }
+
+  // 2. Alternative `fullEntry[2][0][0]` or `inner[1][4][0]`
+  if (Array.isArray(fullEntry[2]) && Array.isArray(fullEntry[2][0])) {
+    const r = checkIntRating((fullEntry[2][0] as unknown[])[0]);
+    if (r !== null) return r;
+  }
+
+  // 3. Scan `inner[2]` for a 1-element rating tuple `[1..5]`
+  if (Array.isArray(inner[2])) {
+    for (const item of inner[2]) {
+      if (Array.isArray(item) && item.length === 1) {
+        const r = checkIntRating(item[0]);
+        if (r !== null) return r;
+      }
+    }
+  }
+
+  return null;
 }
 
 function parseRpcPayload(rawBody: string): { reviews: RawScrapedReview[]; nextToken: string } {
@@ -310,26 +520,21 @@ function parseRpcPayload(rawBody: string): { reviews: RawScrapedReview[]; nextTo
 
   for (const entry of rawEntries) {
     if (!Array.isArray(entry) || entry.length === 0) continue;
-    const inner = Array.isArray(entry[0]) ? entry[0] : entry;
+    const inner =
+      Array.isArray(entry[0]) && entry[0].length >= 3 ? (entry[0] as unknown[]) : entry;
     if (!Array.isArray(inner)) continue;
 
     const id = typeof inner[0] === "string" ? inner[0] : "";
     const ts =
       Array.isArray(inner[1]) && typeof inner[1][6] === "number" ? inner[1][6] : 0;
 
-    let rating: number | null = null;
+    const rating = extractRatingFromNode(inner, entry);
     let text = "";
-    if (Array.isArray(inner[2])) {
-      const sub = inner[2];
-      if (Array.isArray(sub[0]) && typeof sub[0][0] === "number") {
-        const r = sub[0][0];
-        if (r >= 1 && r <= 5) rating = r;
-      }
-      const candidates: string[] = [];
-      collectCandidateStrings(sub, candidates);
-      if (candidates.length > 0) {
-        text = candidates.reduce((a, b) => (b.length > a.length ? b : a), "");
-      }
+    const searchRoot = Array.isArray(inner[2]) ? inner[2] : inner;
+    const candidates: string[] = [];
+    collectCandidateStrings(searchRoot, candidates);
+    if (candidates.length > 0) {
+      text = candidates.reduce((a, b) => (b.length >= a.length ? b : a), "");
     }
 
     if (rating !== null && text) {
@@ -340,13 +545,54 @@ function parseRpcPayload(rawBody: string): { reviews: RawScrapedReview[]; nextTo
   return { reviews, nextToken };
 }
 
+function extractEmbeddedReviewsFromArbitraryJson(
+  node: unknown,
+  out: RawScrapedReview[],
+  seenTexts: Set<string>
+): void {
+  if (!Array.isArray(node) || out.length >= 80) return;
+
+  // Check if `node` looks like a review item `[id, authorArr, [[rating], ...text...]]`
+  if (
+    node.length >= 3 &&
+    typeof node[0] === "string" &&
+    (node[0].startsWith("ChZ") || node[0].startsWith("Chd")) &&
+    Array.isArray(node[2])
+  ) {
+    const rating = extractRatingFromNode(node, node);
+    const candidates: string[] = [];
+    collectCandidateStrings(node[2], candidates);
+    const text =
+      candidates.length > 0
+        ? candidates.reduce((a, b) => (b.length >= a.length ? b : a), "")
+        : "";
+    if (rating !== null && text && !seenTexts.has(text.toLowerCase())) {
+      seenTexts.add(text.toLowerCase());
+      out.push({ id: node[0], rating, text, review_date: 0 });
+      return;
+    }
+  }
+
+  for (const child of node) {
+    if (Array.isArray(child)) {
+      extractEmbeddedReviewsFromArbitraryJson(child, out, seenTexts);
+    }
+  }
+}
+
 async function fetchPlaceMetadata(
   sourceUrl: string,
   featureId: string,
   fetchImpl: typeof fetch
-): Promise<{ competitorName: string; avgRating: number | null }> {
+): Promise<{
+  competitorName: string;
+  avgRating: number | null;
+  embeddedReviews: RawScrapedReview[];
+}> {
   let competitorName = "";
   let avgRating: number | null = null;
+  const embeddedReviews: RawScrapedReview[] = [];
+  const seenTexts = new Set<string>();
 
   // Try extracting place name from URL path `/maps/place/<Name>/` first
   const placeMatch = /\/maps\/place\/([^/@?]+)/i.exec(sourceUrl);
@@ -359,9 +605,10 @@ async function fetchPlaceMetadata(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6_000);
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const resp = await fetchImpl(formatCanonicalMapsUrl(featureId), {
+    const targetUrl = isFullGoogleMapsUrl(sourceUrl) ? sourceUrl : formatCanonicalMapsUrl(featureId);
+    const resp = await fetchImpl(targetUrl, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -388,6 +635,29 @@ async function fetchPlaceMetadata(
           }
         }
       }
+
+      // Check if HTML contains a preload link to `/maps/preview/place?...`
+      const previewMatch = /href="(\/maps\/preview\/place\?[^"]+)"/i.exec(html);
+      if (previewMatch?.[1]) {
+        const previewPath = previewMatch[1].replace(/&amp;/g, "&");
+        const previewResp = await fetchImpl(`https://www.google.com${previewPath}`, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept-Language": "id-ID,id;q=0.9",
+          },
+          signal: controller.signal,
+        });
+        if (previewResp.ok) {
+          const previewText = (await previewResp.text()).trim().replace(/^\)\]\}'\s*/, "");
+          try {
+            const previewData = JSON.parse(previewText) as unknown;
+            extractEmbeddedReviewsFromArbitraryJson(previewData, embeddedReviews, seenTexts);
+          } catch {
+            // ignore preview JSON parse error
+          }
+        }
+      }
     }
   } catch {
     // Metadata is optional per Requirement 17.9
@@ -395,7 +665,7 @@ async function fetchPlaceMetadata(
     clearTimeout(timer);
   }
 
-  return { competitorName, avgRating };
+  return { competitorName, avgRating, embeddedReviews };
 }
 
 export async function acquireCompetitorReviewsRpc(
@@ -410,7 +680,7 @@ export async function acquireCompetitorReviewsRpc(
   failureReason?: string;
 }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
+  const timer = setTimeout(() => controller.abort(), 22_000);
   const collected: RawScrapedReview[] = [];
   const seen = new Set<string>();
 
@@ -421,23 +691,39 @@ export async function acquireCompetitorReviewsRpc(
       let pageToken = "";
       for (let page = 0; page < 4; page++) {
         if (collected.length >= 150) break;
-        const pb = buildRpcPbParam(featureId, sortCode, pageToken);
-        const resp = await fetchImpl(
-          `${PRIMARY_RPC_URL}?authuser=0&hl=id&gl=id&pb=${pb}`,
-          {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-              "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8",
-            },
-            signal: controller.signal,
+        const pbCandidates = buildRpcPbCandidates(featureId, sortCode, pageToken);
+        let pageReviews: RawScrapedReview[] = [];
+        let nextToken = "";
+
+        for (const pb of pbCandidates) {
+          try {
+            const resp = await fetchImpl(
+              `${PRIMARY_RPC_URL}?authuser=0&hl=id&gl=id&pb=${pb}`,
+              {
+                headers: {
+                  "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                  "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8",
+                  Referer: "https://www.google.com/maps/",
+                },
+                signal: controller.signal,
+              }
+            );
+            if (!resp.ok) continue;
+            const text = await resp.text();
+            const parsed = parseRpcPayload(text);
+            if (parsed.reviews.length > 0) {
+              pageReviews = parsed.reviews;
+              nextToken = parsed.nextToken;
+              break;
+            }
+          } catch {
+            // Try next pb candidate
           }
-        );
-        if (!resp.ok) break;
-        const text = await resp.text();
-        const { reviews, nextToken } = parseRpcPayload(text);
+        }
+
         let added = 0;
-        for (const rev of reviews) {
+        for (const rev of pageReviews) {
           const key = rev.id || `${String(rev.rating)}:${String(rev.text)}`;
           if (!seen.has(key)) {
             seen.add(key);
@@ -451,7 +737,13 @@ export async function acquireCompetitorReviewsRpc(
       }
     }
 
-    const { competitorName, avgRating } = await metaPromise;
+    const { competitorName, avgRating, embeddedReviews } = await metaPromise;
+    if (collected.length === 0 && embeddedReviews.length > 0) {
+      for (const rev of embeddedReviews) {
+        collected.push(rev);
+      }
+    }
+
     let computedRating = avgRating;
     if (computedRating === null && collected.length > 0) {
       const sum = collected.reduce(
@@ -617,7 +909,10 @@ export async function runInProcessRadarPipeline(
         continue;
       }
 
-      const scraped = await acquireCompetitorReviewsRpc(rawUrl, parsed.featureId);
+      const scraped = await acquireCompetitorReviewsRpc(
+        parsed.resolvedUrl ?? rawUrl,
+        parsed.featureId
+      );
       if (!scraped.ok || scraped.reviews.length === 0) {
         failedCompetitors.push({
           maps_url: rawUrl,
@@ -681,11 +976,14 @@ export async function runInProcessRadarPipeline(
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },
             ],
-            maxTokens: 900,
+            maxTokens: 2500,
             model: FALLBACK_MODEL,
           });
 
-          const parsedJson = JSON.parse(call.rawText) as unknown;
+          const rawTrimmed = call.rawText.trim();
+          const fenceMatch = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(rawTrimmed);
+          const jsonText = fenceMatch ? fenceMatch[1] : rawTrimmed;
+          const parsedJson = JSON.parse(jsonText) as unknown;
           const guarded = guardSingleMapJson(parsedJson);
           return {
             mapsUrl: item.mapsUrl,
@@ -752,7 +1050,7 @@ export async function runInProcessRadarPipeline(
           { role: "system", content: reduceSystemPrompt },
           { role: "user", content: reduceUserPrompt },
         ],
-        maxTokens: 1200,
+        maxTokens: 4096,
       });
     } catch (err) {
       await updateJob({

@@ -52,7 +52,9 @@ function PetaSainganBody({ scenario }: { scenario: string }) {
           ) : null
         }
       />
-      <DemoSwitcher basePath="/dashboard/petasaingan" states={[...MODULE2_SCENARIOS]} current={scenario} />
+      {scenario ? (
+        <DemoSwitcher basePath="/dashboard/petasaingan" states={[...MODULE2_SCENARIOS]} current={scenario} />
+      ) : null}
 
       {job ? (
         <RadarJobView job={job} onRetry={retry} retrying={active} retryError={retryError} />

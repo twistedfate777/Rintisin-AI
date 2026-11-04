@@ -12,6 +12,7 @@ import { guardStoredModule2 } from "@/lib/validation/response-guard";
 // ============================================================================
 
 export const DISPATCH_TIMEOUT_MS = 5_000;
+export const JOB_TIMEOUT_MS = 300_000;
 export const DISPATCH_UNAVAILABLE_MESSAGE =
   "Server analisis sedang tidak tersedia. Silakan coba lagi.";
 export const ACTIVE_JOB_CONFLICT_MESSAGE =
@@ -130,6 +131,7 @@ export function isExternalWorkerConfigured(rawUrl?: string): boolean {
   const lower = url.toLowerCase();
   if (lower === "internal" || lower === "vercel") return false;
   if (lower.includes("<space-name>")) return false;
+  if (lower.includes(".vercel.app") || lower.includes("localhost:3000")) return false;
   return true;
 }
 

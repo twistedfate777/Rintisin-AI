@@ -11,6 +11,7 @@ import {
   guardStep1Object,
   guardStep1Response,
   guardStep2Object,
+  guardStep2Response,
   guardStoredModule2,
   guardStoredStep1,
   guardStoredStep2,
@@ -206,6 +207,55 @@ describe("JSON Parse Retry & Degradation (Requirement 12.2, 12.11)", () => {
     expect(out.is_degraded).toBe(true);
     expect(out.data.feasibility_audit.trend_sustainability.analysis).toBe(DEFAULT_TEXT);
     expect(step1ResultSchema.safeParse(out.data).success).toBe(true);
+  });
+
+  it("retries once and merges when initial JSON omits target_market_mapper or gtm_readiness", async () => {
+    const step1Retry = vi.fn().mockResolvedValueOnce({
+      rawText: JSON.stringify(mockStep1),
+      modelUsed: "openai/gpt-oss-120b" as const,
+    });
+
+    const out1 = await guardStep1Response({
+      rawText: JSON.stringify({ feasibility_audit: mockStep1.feasibility_audit }),
+      modelUsed: "openai/gpt-oss-120b",
+      remainingTimeMs: 5000,
+      retryCall: step1Retry,
+    });
+
+    expect(step1Retry).toHaveBeenCalledTimes(1);
+    expect(out1.retried).toBe(true);
+    expect(out1.data.target_market_mapper).toEqual(mockStep1.target_market_mapper);
+
+    const step2Retry = vi.fn().mockResolvedValueOnce({
+      rawText: JSON.stringify(mockStep2),
+      modelUsed: "openai/gpt-oss-120b" as const,
+    });
+
+    const out2 = await guardStep2Response({
+      rawText: JSON.stringify({ competitor_matrix: mockStep2.competitor_matrix }),
+      modelUsed: "openai/gpt-oss-120b",
+      remainingTimeMs: 5000,
+      retryCall: step2Retry,
+    });
+
+    expect(step2Retry).toHaveBeenCalledTimes(1);
+    expect(out2.retried).toBe(true);
+    expect(out2.data.gtm_readiness).toEqual(mockStep2.gtm_readiness);
+  });
+
+  it("unwraps flattened or aliased target_market_mapper and gtm_readiness keys", () => {
+    const flattenedStep1 = guardStep1Object({
+      feasibility_audit: mockStep1.feasibility_audit,
+      primary_segment: mockStep1.target_market_mapper.primary_segment,
+      effective_channels: mockStep1.target_market_mapper.effective_channels,
+    });
+    expect(flattenedStep1.data.target_market_mapper).toEqual(mockStep1.target_market_mapper);
+
+    const flattenedStep2 = guardStep2Object({
+      competitor_matrix: mockStep2.competitor_matrix,
+      ...mockStep2.gtm_readiness,
+    });
+    expect(flattenedStep2.data.gtm_readiness).toEqual(mockStep2.gtm_readiness);
   });
 });
 

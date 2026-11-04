@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
+import { mockModule1History } from "@/lib/mock/module1";
+import { mockRadarHistory } from "@/lib/mock/module2";
 import { mapDbRowToModule1Analysis, type Module1DbRow } from "@/lib/services/module1-service";
 import { mapDbRowToRadarJob, type RadarJobDbRow } from "@/lib/services/module2-service";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { DEMO_SESSION_COOKIE } from "@/lib/supabase/demo-auth";
 import type { Module1Analysis, RadarJob } from "@/lib/types";
-import { mockModule1History } from "@/lib/mock/module1";
-import { mockRadarHistory } from "@/lib/mock/module2";
+
+function hasBrowserDemoCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split(";").some((c) => c.trim().startsWith(`${DEMO_SESSION_COOKIE}=`));
+}
 
 function createStore<T extends { id: string; created_at: string }>(initial: T[]) {
   let rows = initial;
@@ -44,8 +50,8 @@ function createStore<T extends { id: string; created_at: string }>(initial: T[])
   };
 }
 
-export const module1Store = createStore<Module1Analysis>(mockModule1History);
-export const radarStore = createStore<RadarJob>(mockRadarHistory);
+export const module1Store = createStore<Module1Analysis>([]);
+export const radarStore = createStore<RadarJob>([]);
 
 function byNewest<T extends { created_at: string }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -59,7 +65,12 @@ export async function refreshModule1StoreFromDb(): Promise<void> {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session?.user) return;
+    if (!session?.user) {
+      if (hasBrowserDemoCookie() && module1Store.getSnapshot().length === 0) {
+        module1Store.replaceAll(mockModule1History);
+      }
+      return;
+    }
 
     const { data, error } = await supabase
       .from("module1_analyses")
@@ -70,7 +81,9 @@ export async function refreshModule1StoreFromDb(): Promise<void> {
       module1Store.replaceAll((data as Module1DbRow[]).map(mapDbRowToModule1Analysis));
     }
   } catch {
-    // Keep current store rows on offline/demo environments.
+    if (hasBrowserDemoCookie() && module1Store.getSnapshot().length === 0) {
+      module1Store.replaceAll(mockModule1History);
+    }
   } finally {
     module1Store.setHydrating(false);
   }
@@ -84,7 +97,12 @@ export async function refreshRadarStoreFromDb(): Promise<void> {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session?.user) return;
+    if (!session?.user) {
+      if (hasBrowserDemoCookie() && radarStore.getSnapshot().length === 0) {
+        radarStore.replaceAll(mockRadarHistory);
+      }
+      return;
+    }
 
     // Requirement 24.1: at most 20 entries per page, sorted descending by created_at.
     const { data, error } = await supabase
@@ -97,7 +115,9 @@ export async function refreshRadarStoreFromDb(): Promise<void> {
       radarStore.replaceAll((data as RadarJobDbRow[]).map(mapDbRowToRadarJob));
     }
   } catch {
-    // Keep current store rows on offline/demo environments.
+    if (hasBrowserDemoCookie() && radarStore.getSnapshot().length === 0) {
+      radarStore.replaceAll(mockRadarHistory);
+    }
   } finally {
     radarStore.setHydrating(false);
   }
