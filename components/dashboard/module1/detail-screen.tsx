@@ -19,7 +19,9 @@ export function Module1DetailScreen() {
   const [loading, setLoading] = useState(!row && Boolean(id) && !id.startsWith("lt-"));
 
   useEffect(() => {
-    if (row || !id || id.startsWith("lt-")) return;
+    const isIncomplete =
+      !row || row.step1_status === "RUNNING" || row.step2_status === "RUNNING";
+    if (!isIncomplete || !id || id.startsWith("lt-") || id.startsWith("demo-")) return;
     let cancelled = false;
 
     const loadFromDb = async () => {

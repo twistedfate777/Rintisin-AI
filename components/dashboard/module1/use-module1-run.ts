@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   mockStep1,
   mockStep1Degraded,
   mockStep2,
   mockStep2Empty,
 } from "@/lib/mock/module1";
-import { mockId, module1Store, sleep } from "@/lib/mock/store";
+import { mockId, module1Store, sleep, useModule1Rows } from "@/lib/mock/store";
+import { mapDbRowToModule1Analysis, type Module1DbRow } from "@/lib/services/module1-service";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { IdeaInput, Module1Analysis, Step1Result, Step2Result } from "@/lib/types";
 
 export const MODULE1_SCENARIOS = [
@@ -69,17 +71,75 @@ interface ApiStepResponse {
   error?: string;
 }
 
+function hasMoreCompleteStatus(current: Module1Analysis, candidate: Module1Analysis): boolean {
+  if (current.id !== candidate.id) return false;
+  const rank = (s: Module1Analysis["step1_status"]) =>
+    s === "SUCCESS" || s === "FAILED" ? 2 : s === "RUNNING" ? 1 : 0;
+  if (rank(candidate.step1_status) > rank(current.step1_status)) return true;
+  if (rank(candidate.step2_status) > rank(current.step2_status)) return true;
+  if (!current.step1_result && Boolean(candidate.step1_result)) return true;
+  if (!current.step2_result && Boolean(candidate.step2_result)) return true;
+  return false;
+}
+
 export function useModule1Run(initial: Module1Analysis | null, scenario: string) {
   const [analysis, setAnalysis] = useState<Module1Analysis | null>(initial);
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const failuresLeft = useRef({ step1: 0, step2: 0 });
+  const storeRows = useModule1Rows();
 
   const commit = useCallback((next: Module1Analysis, persist: boolean) => {
     setAnalysis(next);
     if (persist) module1Store.upsert(next);
   }, []);
+
+  // Keep local state in sync if the store receives a completed update for the active analysis.
+  const storeMatch = analysis ? storeRows.find((r) => r.id === analysis.id) : null;
+  if (analysis && storeMatch && hasMoreCompleteStatus(analysis, storeMatch)) {
+    setAnalysis(storeMatch);
+  }
+
+  // Poll DB while Step 1 or Step 2 is RUNNING on a real DB record so the UI never gets stuck
+  // if the HTTP response is delayed or the user opened the detail page mid-run.
+  useEffect(() => {
+    if (!analysis || scenario || isMockAnalysisId(analysis.id)) return;
+    const isRunning =
+      analysis.step1_status === "RUNNING" || analysis.step2_status === "RUNNING";
+    if (!isRunning) return;
+
+    let cancelled = false;
+    const supabase = createSupabaseBrowserClient();
+
+    const pollDb = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("module1_analyses")
+          .select("*")
+          .eq("id", analysis.id)
+          .single();
+
+        if (!cancelled && !error && data) {
+          const mapped = mapDbRowToModule1Analysis(data as Module1DbRow);
+          if (hasMoreCompleteStatus(analysis, mapped)) {
+            commit(mapped, true);
+          }
+        }
+      } catch {
+        // Ignore transient network errors during background poll.
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollDb();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [analysis, scenario, commit]);
 
   const runDemoStep2 = useCallback(
     async (afterStep1: Module1Analysis, persist: boolean) => {

@@ -9,12 +9,54 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { DEMO_SESSION_COOKIE } from "@/lib/supabase/demo-auth";
 import type { Module1Analysis, RadarJob } from "@/lib/types";
 
+const DEMO_MODULE1_STORAGE_KEY = "rintisin_demo_module1_rows_v1";
+const DEMO_RADAR_STORAGE_KEY = "rintisin_demo_radar_rows_v1";
+
 function hasBrowserDemoCookie(): boolean {
   if (typeof document === "undefined") return false;
   return document.cookie.split(";").some((c) => c.trim().startsWith(`${DEMO_SESSION_COOKIE}=`));
 }
 
-function createStore<T extends { id: string; created_at: string }>(initial: T[]) {
+function readDemoStorage<T>(key: string, fallback: T[]): T[] {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      window.localStorage.setItem(key, JSON.stringify(fallback));
+      return fallback;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as T[]) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeDemoStorage<T>(key: string, rows: T[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(rows));
+  } catch {
+    // Ignore storage quota/security errors.
+  }
+}
+
+function mergeRowsById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const row of incoming) {
+    map.set(row.id, row);
+  }
+  // Keep in-memory rows (e.g. newly created or in-progress analyses) on top of incoming rows.
+  for (const row of current) {
+    map.set(row.id, row);
+  }
+  return Array.from(map.values());
+}
+
+function createStore<T extends { id: string; created_at: string }>(
+  initial: T[],
+  demoStorageKey: string
+) {
   let rows = initial;
   let hydratedFromDb = false;
   let hydrating = false;
@@ -36,22 +78,36 @@ function createStore<T extends { id: string; created_at: string }>(initial: T[])
     replaceAll(nextRows: T[]) {
       rows = nextRows;
       hydratedFromDb = true;
+      if (hasBrowserDemoCookie()) {
+        writeDemoStorage(demoStorageKey, rows);
+      }
       emit();
     },
     upsert(row: T) {
+      if (hasBrowserDemoCookie() && !hydratedFromDb) {
+        const stored = readDemoStorage<T>(demoStorageKey, initial);
+        rows = mergeRowsById(rows, stored);
+        hydratedFromDb = true;
+      }
       const exists = rows.some((r) => r.id === row.id);
       rows = exists ? rows.map((r) => (r.id === row.id ? row : r)) : [row, ...rows];
+      if (hasBrowserDemoCookie()) {
+        writeDemoStorage(demoStorageKey, rows);
+      }
       emit();
     },
     remove(id: string) {
       rows = rows.filter((r) => r.id !== id);
+      if (hasBrowserDemoCookie()) {
+        writeDemoStorage(demoStorageKey, rows);
+      }
       emit();
     },
   };
 }
 
-export const module1Store = createStore<Module1Analysis>([]);
-export const radarStore = createStore<RadarJob>([]);
+export const module1Store = createStore<Module1Analysis>([], DEMO_MODULE1_STORAGE_KEY);
+export const radarStore = createStore<RadarJob>([], DEMO_RADAR_STORAGE_KEY);
 
 function byNewest<T extends { created_at: string }>(rows: T[]): T[] {
   return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -61,14 +117,18 @@ export async function refreshModule1StoreFromDb(): Promise<void> {
   if (module1Store.isHydrating()) return;
   module1Store.setHydrating(true);
   try {
+    if (hasBrowserDemoCookie()) {
+      const stored = readDemoStorage(DEMO_MODULE1_STORAGE_KEY, mockModule1History);
+      const merged = mergeRowsById(module1Store.getSnapshot(), stored);
+      module1Store.replaceAll(merged);
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.user) {
-      if (hasBrowserDemoCookie() && module1Store.getSnapshot().length === 0) {
-        module1Store.replaceAll(mockModule1History);
-      }
       return;
     }
 
@@ -78,11 +138,16 @@ export async function refreshModule1StoreFromDb(): Promise<void> {
       .order("created_at", { ascending: false });
 
     if (!error && Array.isArray(data)) {
-      module1Store.replaceAll((data as Module1DbRow[]).map(mapDbRowToModule1Analysis));
+      const dbRows = (data as Module1DbRow[]).map(mapDbRowToModule1Analysis);
+      const localMockRows = module1Store
+        .getSnapshot()
+        .filter((r) => isMockRecordId(r.id) && !r.id.startsWith("demo-"));
+      module1Store.replaceAll(mergeRowsById(localMockRows, dbRows));
     }
   } catch {
-    if (hasBrowserDemoCookie() && module1Store.getSnapshot().length === 0) {
-      module1Store.replaceAll(mockModule1History);
+    if (hasBrowserDemoCookie()) {
+      const stored = readDemoStorage(DEMO_MODULE1_STORAGE_KEY, mockModule1History);
+      module1Store.replaceAll(mergeRowsById(module1Store.getSnapshot(), stored));
     }
   } finally {
     module1Store.setHydrating(false);
@@ -93,14 +158,18 @@ export async function refreshRadarStoreFromDb(): Promise<void> {
   if (radarStore.isHydrating()) return;
   radarStore.setHydrating(true);
   try {
+    if (hasBrowserDemoCookie()) {
+      const stored = readDemoStorage(DEMO_RADAR_STORAGE_KEY, mockRadarHistory);
+      const merged = mergeRowsById(radarStore.getSnapshot(), stored);
+      radarStore.replaceAll(merged);
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.user) {
-      if (hasBrowserDemoCookie() && radarStore.getSnapshot().length === 0) {
-        radarStore.replaceAll(mockRadarHistory);
-      }
       return;
     }
 
@@ -112,11 +181,16 @@ export async function refreshRadarStoreFromDb(): Promise<void> {
       .limit(20);
 
     if (!error && Array.isArray(data)) {
-      radarStore.replaceAll((data as RadarJobDbRow[]).map(mapDbRowToRadarJob));
+      const dbRows = (data as RadarJobDbRow[]).map(mapDbRowToRadarJob);
+      const localMockRows = radarStore
+        .getSnapshot()
+        .filter((r) => isMockRecordId(r.id) && !r.id.startsWith("demo-"));
+      radarStore.replaceAll(mergeRowsById(localMockRows, dbRows));
     }
   } catch {
-    if (hasBrowserDemoCookie() && radarStore.getSnapshot().length === 0) {
-      radarStore.replaceAll(mockRadarHistory);
+    if (hasBrowserDemoCookie()) {
+      const stored = readDemoStorage(DEMO_RADAR_STORAGE_KEY, mockRadarHistory);
+      radarStore.replaceAll(mergeRowsById(radarStore.getSnapshot(), stored));
     }
   } finally {
     radarStore.setHydrating(false);

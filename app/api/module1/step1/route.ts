@@ -110,8 +110,9 @@ export async function POST(request: Request) {
 
     if (isDemo) {
       persistedInDb = false;
+      const randomSuffix = Math.random().toString(36).slice(2, 5);
       targetRow = {
-        id: `lt-${Date.now().toString(36).slice(-6)}`,
+        id: `lt-${Date.now().toString(36).slice(-5)}${randomSuffix}`,
         user_id: user.id,
         product_idea: validation.data.product_idea,
         category: validation.data.category,

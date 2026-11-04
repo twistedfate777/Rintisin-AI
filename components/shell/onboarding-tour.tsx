@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 
@@ -56,6 +57,12 @@ export function triggerOnboardingTourOnNextLoad() {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.setItem(TOUR_TRIGGER_STORAGE_KEY, "1");
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(TOUR_SEEN_STORAGE_PREFIX)) {
+        window.localStorage.removeItem(key);
+      }
+    }
   } catch {
     // Ignore storage errors in restricted environments.
   }
@@ -89,6 +96,7 @@ function findVisibleElement(step: TourStep): HTMLElement | null {
 }
 
 export function OnboardingTour({ userEmail }: { userEmail?: string }) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
@@ -121,14 +129,9 @@ export function OnboardingTour({ userEmail }: { userEmail?: string }) {
     let shouldOpen = false;
     try {
       const triggered = window.sessionStorage.getItem(TOUR_TRIGGER_STORAGE_KEY);
-      if (triggered === "1") {
-        window.sessionStorage.removeItem(TOUR_TRIGGER_STORAGE_KEY);
+      const alreadySeen = window.localStorage.getItem(seenKey);
+      if (triggered === "1" || !alreadySeen) {
         shouldOpen = true;
-      } else {
-        const alreadySeen = window.localStorage.getItem(seenKey);
-        if (!alreadySeen) {
-          shouldOpen = true;
-        }
       }
     } catch {
       shouldOpen = false;
@@ -138,10 +141,10 @@ export function OnboardingTour({ userEmail }: { userEmail?: string }) {
       const timer = window.setTimeout(() => {
         setStepIndex(0);
         setOpen(true);
-      }, 220);
+      }, 150);
       return () => window.clearTimeout(timer);
     }
-  }, [seenKey]);
+  }, [seenKey, pathname]);
 
   useEffect(() => {
     const handleStart = () => {

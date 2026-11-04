@@ -11,7 +11,7 @@ import {
   mockResultPartial,
   mockUrls,
 } from "@/lib/mock/module2";
-import { mockId, radarStore, sleep } from "@/lib/mock/store";
+import { mockId, radarStore, sleep, useRadarRows } from "@/lib/mock/store";
 import {
   JOB_TIMEOUT_MS,
   type RadarJobDbRow,
@@ -105,14 +105,26 @@ export function useRadarRealtimeJob(initialJob: RadarJob) {
   const [remoteByJobId, setRemoteByJobId] = useState<Record<string, RadarJob>>({});
   const [disconnectedByJobId, setDisconnectedByJobId] = useState<Record<string, boolean>>({});
   const [readErrorByJobId, setReadErrorByJobId] = useState<Record<string, string | null>>({});
+  const storeRows = useRadarRows();
 
+  const storeCandidate = storeRows.find((r) => r.id === initialJob.id);
   const remoteCandidate = remoteByJobId[initialJob.id];
-  const liveJob =
+
+  let liveJob = initialJob;
+  if (
+    storeCandidate &&
+    (storeCandidate.status === liveJob.status ||
+      shouldAcceptJobStatusUpdate(liveJob.status, storeCandidate.status))
+  ) {
+    liveJob = storeCandidate;
+  }
+  if (
     remoteCandidate &&
-    (remoteCandidate.status === initialJob.status ||
-      shouldAcceptJobStatusUpdate(initialJob.status, remoteCandidate.status))
-      ? remoteCandidate
-      : initialJob;
+    (remoteCandidate.status === liveJob.status ||
+      shouldAcceptJobStatusUpdate(liveJob.status, remoteCandidate.status))
+  ) {
+    liveJob = remoteCandidate;
+  }
 
   const latestJobRef = useRef<RadarJob>(liveJob);
   useEffect(() => {
@@ -223,8 +235,25 @@ export function useRadarRealtimeJob(initialJob: RadarJob) {
         }
       });
 
+    const pollIntervalId = window.setInterval(async () => {
+      if (cancelledRef.current) return;
+      try {
+        const { data, error } = await supabase
+          .from("module2_radars")
+          .select("*")
+          .eq("id", jobId)
+          .single();
+        if (!cancelledRef.current && !error && data) {
+          applyRow(data as RadarJobDbRow);
+        }
+      } catch {
+        // Ignore transient polling errors while Realtime/polling continues.
+      }
+    }, 3000);
+
     return () => {
       cancelledRef.current = true;
+      window.clearInterval(pollIntervalId);
       void supabase.removeChannel(channel);
     };
   }, [liveJob.id, terminal, applyRow, readJobWithRetry]);

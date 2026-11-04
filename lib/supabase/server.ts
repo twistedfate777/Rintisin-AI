@@ -58,6 +58,11 @@ export async function requireAuthenticatedUser(): Promise<AuthenticatedContext> 
     const isDemoSession = isValidDemoCookie(cookieStore.get(DEMO_SESSION_COOKIE)?.value);
 
     const supabase = await createSupabaseServerClient();
+
+    if (isDemoSession) {
+      return { ok: true, supabase, user: createDemoSupabaseUser(), isDemo: true };
+    }
+
     const {
       data: { user },
       error,
@@ -65,10 +70,6 @@ export async function requireAuthenticatedUser(): Promise<AuthenticatedContext> 
 
     if (!error && user) {
       return { ok: true, supabase, user };
-    }
-
-    if (isDemoSession) {
-      return { ok: true, supabase, user: createDemoSupabaseUser(), isDemo: true };
     }
 
     return {
